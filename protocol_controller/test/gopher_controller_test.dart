@@ -32,7 +32,7 @@ void main() {
     final gopher_controller =
         GopherController("gopher.floodgap.com", 70, "/v2/vs");
     String data = await gopher_controller.make_request("programming");
-    
+
     final Logger my_logger = Logger('mylogger');
     final log_file = File('searchlog.txt');
 
@@ -41,5 +41,7 @@ void main() {
     });
 
     my_logger.info(data);
+
+    expect(data.contains("floodgap"), true);
   });
 }
