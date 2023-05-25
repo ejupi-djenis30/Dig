@@ -21,20 +21,38 @@ class GopherController extends ProtocolController {
   
   String selector;
   
-  GopherController(String address, int port, String other_data, this.selector) : super(address, port, other_data);
+  GopherController(String address, int port, String _other_data, this.selector) : super(address, port, _other_data);
 
+  String get_url(String query) {
+    String url = "";
+    if (super.server[super.server.length - 1] == "/") url += "";
+    else url += "/";
+
+    if (super.other_data[0] == "/") url += super.other_data;
+    else url += "/" + super.other_data;
+
+    if (query != "") url += "\t" + query + "\r\n";
+    else url += "\r\n";
+
+    return url;
+  }
+  
   @override
   Future<String> make_request([String query = ""]) async {
     // Ottenere il socket.
     Socket socket = await get_socket();
     String response = "";
+    String url = get_url(query);
 
+    socket.write(url);
+    
     // Se c'è una query string allora si manda anche quella altrimenti si
     // fa una richiesta semplice.
-    if (query != "") socket.write("/" + selector + "/" + other_data + "\t" + query + "\r\n");
-    else socket.write("/" + selector + "/" + other_data + "\r\n");
-
-    // Ottenere la risposta completa dal server.
+    /*
+    if (query != "") socket.write("/" + selector + "/" + super.other_data + "\t" + query + "\r\n");
+    else socket.write("/" + selector + "/" + super.other_data + "\r\n");
+*/
+    // Ottenere la risposta completa dal _server.
     final completer = Completer<void>();
     socket.listen((List<int> data) {
         response = String.fromCharCodes(data);
