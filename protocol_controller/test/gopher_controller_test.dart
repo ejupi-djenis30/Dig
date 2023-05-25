@@ -27,4 +27,20 @@ void main() {
 
     expect(data.contains("sdf"), equals(true));
   });
+
+  test('Motore di ricerca', () async {
+    final gopher_controller =
+        GopherController("gopher.floodgap.com", 70, "/v2/vs");
+    String data = await gopher_controller.make_search("programming");
+
+    
+    final Logger my_logger = Logger('mylogger');
+    final log_file = File('searchlog.txt');
+
+    my_logger.onRecord.listen((record) {
+      log_file.writeAsStringSync(record.message);
+    });
+
+    my_logger.info(data);
+  });
 }

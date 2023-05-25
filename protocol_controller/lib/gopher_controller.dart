@@ -27,4 +27,22 @@ class GopherController extends ProtocolController {
     
     return Future.value(response);
   }
+
+  Future<String> make_search(String query) async {
+    Socket socket = await get_socket();
+    String response = "";
+
+    socket.write(other_data + "\t" + query + "\r\n");
+
+    final completer = Completer<void>();
+    socket.listen((List<int> data) {
+        response = String.fromCharCodes(data);
+    }, onDone: () => completer.complete());
+
+    await completer.future;
+
+    await socket.close();
+
+    return Future.value(response);
+  } 
 }
