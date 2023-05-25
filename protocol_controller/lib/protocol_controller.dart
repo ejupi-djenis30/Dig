@@ -11,7 +11,7 @@ abstract class ProtocolController {
 
   ProtocolController(this.server, this.port, this.other_data);
 
-  Future<String> make_request();
+  Future<String> make_request([String query = ""]);
 
   Future<Socket> get_socket() async {
     RegExp exp = RegExp(r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$');

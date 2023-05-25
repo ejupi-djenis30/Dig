@@ -31,8 +31,7 @@ void main() {
   test('Motore di ricerca', () async {
     final gopher_controller =
         GopherController("gopher.floodgap.com", 70, "/v2/vs");
-    String data = await gopher_controller.make_search("programming");
-
+    String data = await gopher_controller.make_request("programming");
     
     final Logger my_logger = Logger('mylogger');
     final log_file = File('searchlog.txt');
