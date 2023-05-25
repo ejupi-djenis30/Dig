@@ -20,8 +20,8 @@ class GopherController extends ProtocolController {
 
     // Se c'è una query string allora si manda anche quella altrimenti si
     // fa una richiesta semplice.
-    if (query != "") socket.write(selector + "/" + other_data + "\t" + query + "\r\n");
-    else socket.write(selector + "/" + other_data + "\r\n");
+    if (query != "") socket.write("/" + selector + "/" + other_data + "\t" + query + "\r\n");
+    else socket.write("/" + selector + "/" + other_data + "\r\n");
 
     // Ottenere la risposta completa dal server.
     final completer = Completer<void>();

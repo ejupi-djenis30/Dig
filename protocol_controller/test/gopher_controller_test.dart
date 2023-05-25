@@ -42,7 +42,7 @@ void main() {
 
     my_logger.info(data);
 
-    expect(data.contains("floodgap"), true);
+    expect(data.contains("programming"), true);
   });
 
   test('Selector', () async {
