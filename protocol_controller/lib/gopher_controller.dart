@@ -6,17 +6,22 @@ import 'dart:core';
 import 'dart:io';
 import 'dart:async';
 
+/// Classe per gestire il protocollo gopher.
 class GopherController extends ProtocolController {
   GopherController(String address, int port, String other_data) : super(address, port, other_data);
 
   @override
   Future<String> make_request([String query = ""]) async {
+    // Ottenere il socket.
     Socket socket = await get_socket();
     String response = "";
 
+    // Se c'è una query string allora si manda anche quella altrimenti si
+    // fa una richiesta semplice.
     if (query != "") socket.write(other_data + "\t" + query + "\r\n");
     else socket.write(other_data + "\r\n");
 
+    // Ottenere la risposta completa dal server.
     final completer = Completer<void>();
     socket.listen((List<int> data) {
         response = String.fromCharCodes(data);
@@ -24,6 +29,7 @@ class GopherController extends ProtocolController {
 
     await completer.future;
 
+    // Chiudere il socket e restituire la risposta.
     await socket.close();
     
     return Future.value(response);
