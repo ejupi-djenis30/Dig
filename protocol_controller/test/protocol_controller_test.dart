@@ -1,9 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:protocol_controller/protocol_controller.dart';
+import 'package:protocol_controller/gopher_controller.dart';
+
+import 'dart:io';
 
 void main() {
-  test('adds one to input values', () {
-    final calculator = ProtocolController();
+  test('Aprire il socket', () async {
+    final protocol_controller = GopherController("sdf.org", 70, "/");
+    Socket socket = await protocol_controller.getSocket();
+    await socket.close();
   });
 }
