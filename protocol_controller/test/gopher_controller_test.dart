@@ -6,8 +6,8 @@ import 'dart:io';
 
 void main() {
   test('Aprire il socket', () async {
-    final protocol_controller = GopherController("sdf.org", 70, "/");
-    Socket socket = await protocol_controller.getSocket();
+    final gopher_controller = GopherController("sdf.org", 70, "/");
+    Socket socket = await gopher_controller.getSocket();
     await socket.close();
   });
 }
