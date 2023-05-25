@@ -7,13 +7,13 @@ import 'dart:io';
 
 void main() {
   test('Aprire il socket', () async {
-    final gopher_controller = GopherController("sdf.org", 70, "/", "0");
+    final gopher_controller = GopherController("sdf.org", 70, "/", GopherController.NONE_SELECTOR);
     Socket socket = await gopher_controller.get_socket();
     await socket.close();
   });
 
   test('Letture dal socket', () async {
-    final gopher_controller = GopherController("sdf.org", 70, "/", "");
+    final gopher_controller = GopherController("sdf.org", 70, "/", GopherController.NONE_SELECTOR);
     String data = await gopher_controller.make_request();
 
     final Logger my_logger = Logger('mylogger');
@@ -30,7 +30,7 @@ void main() {
 
   test('Motore di ricerca', () async {
     final gopher_controller =
-        GopherController("gopher.floodgap.com", 70, "/v2/vs", "");
+        GopherController("gopher.floodgap.com", 70, "/v2/vs", GopherController.NONE_SELECTOR);
     String data = await gopher_controller.make_request("programming");
 
     final Logger my_logger = Logger('mylogger');
@@ -47,7 +47,7 @@ void main() {
 
   test('Selector', () async {
     final gopher_controller =
-        GopherController("gopher.floodgap.com", 70, "/maps/", "1");
+        GopherController("gopher.floodgap.com", 70, "/maps/", GopherController.MENU_SELECTOR);
     String data = await gopher_controller.make_request();
 
     
@@ -59,7 +59,6 @@ void main() {
     });
 
     my_logger.info(data);
-
     
     expect(data.contains("maps"), true);
   });

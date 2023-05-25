@@ -8,6 +8,17 @@ import 'dart:async';
 
 /// Classe per gestire il protocollo gopher.
 class GopherController extends ProtocolController {
+  // Tipi gopher.
+  static const String FILE_SELECTOR = "0";
+  static const String MENU_SELECTOR = "1";
+  static const String ERROR_SELECTOR = "3";
+  static const String SEARCH_SELECTOR = "7";
+  static const String BINARY_SELECTOR = "9";
+  static const String GIF_SELECTOR = "g";
+  static const String IMAGE_SELECTOR = "I";
+  static const String INTERNET_SELECTOR = "h";
+  static const String NONE_SELECTOR = "";
+  
   String selector;
   
   GopherController(String address, int port, String other_data, this.selector) : super(address, port, other_data);
