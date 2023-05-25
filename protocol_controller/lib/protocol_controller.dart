@@ -13,7 +13,7 @@ abstract class ProtocolController {
 
   String make_request();
 
-  Future<Socket> getSocket() async {
+  Future<Socket> get_socket() async {
     RegExp exp = RegExp(r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$');
 
     var matches = exp.hasMatch(server);
