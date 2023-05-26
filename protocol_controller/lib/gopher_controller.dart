@@ -21,7 +21,7 @@ class GopherController extends ProtocolController {
   
   String selector;
   
-  GopherController(String address, int port, String _other_data, this.selector) : super(address, port, _other_data);
+  GopherController(String address, int port, String other_data, this.selector) : super(address, port, other_data);
 
   String get_url(String query) {
     String url = "";
