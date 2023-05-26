@@ -146,13 +146,13 @@
       "languageVersion": "2.14"
     },
     {
-      "name": "dig",
+      "name": "Dig",
       "rootUri": "../",
       "packageUri": "lib/",
       "languageVersion": "3.0"
     }
   ],
-  "generated": "2023-05-22T09:54:36.565940Z",
+  "generated": "2023-05-25T09:53:22.173640Z",
   "generator": "pub",
-  "generatorVersion": "3.0.0"
+  "generatorVersion": "3.0.1"
 }
