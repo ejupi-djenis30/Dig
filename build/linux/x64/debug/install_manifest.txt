@@ -6,7 +6,7 @@
 /home/djenise/Projects/Dig/build/linux/x64/debug/bundle/data/flutter_assets/version.json
 /home/djenise/Projects/Dig/build/linux/x64/debug/bundle/data/flutter_assets/FontManifest.json
 /home/djenise/Projects/Dig/build/linux/x64/debug/bundle/data/flutter_assets/fonts/MaterialIcons-Regular.otf
-/home/djenise/Projects/Dig/build/linux/x64/debug/bundle/data/flutter_assets/AssetManifest.bin
+/home/djenise/Projects/Dig/build/linux/x64/debug/bundle/data/flutter_assets/AssetManifest.smcbin
 /home/djenise/Projects/Dig/build/linux/x64/debug/bundle/data/flutter_assets/shaders/ink_sparkle.frag
 /home/djenise/Projects/Dig/build/linux/x64/debug/bundle/data/flutter_assets/AssetManifest.json
 /home/djenise/Projects/Dig/build/linux/x64/debug/bundle/data/flutter_assets/kernel_blob.bin

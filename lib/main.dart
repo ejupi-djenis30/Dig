@@ -1,12 +1,14 @@
+import 'package:Dig/reload.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'home.dart';
 
 void main() {
-  runApp(MyApp());
+  runApp(DigBrowser());
 }
 
-class MyApp extends StatelessWidget {
+class DigBrowser extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -15,46 +17,71 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.blue,
       ),
-      home: MyHomePage(title: 'Dig Browser'),
+      home: DigHomePage(title: 'Dig Browser'),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  MyHomePage({Key? key, required this.title}) : super(key: key);
+class DigHomePage extends StatefulWidget {
+  DigHomePage({Key? key, required this.title}) : super(key: key);
   final String title;
 
   @override
-  _MyHomePageState createState() => _MyHomePageState();
+  _DigHomePageState createState() => _DigHomePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage>
+class _DigHomePageState extends State<DigHomePage>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  late HomeWidget homeWidget;
   bool isFavorite = false;
-  bool showAppBar = false;
+  late bool showAppBar;
+  late TextEditingController _searchController;
+  bool isLoading = false;
+  late ReloadButton reloadButton;
 
   @override
   void initState() {
     super.initState();
+    homeWidget = HomeWidget();
     _tabController = TabController(length: 5, vsync: this);
-    _tabController.addListener(_handleTabSelection);
+    showAppBar = _tabController.index == 0 && homeWidget.tabs.isNotEmpty;
+    _tabController.addListener(_handleTabCountChanged);
+    _searchController = TextEditingController();
+    reloadButton = ReloadButton(isLoading: isLoading);
   }
 
-  void _handleTabSelection() {
+  void _handleTabCountChanged() {
     setState(() {
-      if (_tabController.index == 0) {
-        showAppBar = true;
-      } else {
-        showAppBar = false;
-      }
+      showAppBar = _tabController.index == 0 && homeWidget.tabs.isNotEmpty;
+      isLoading = reloadButton.isLoading;
     });
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _searchController.dispose();
     super.dispose();
+  }
+
+  void _startReloadAnimation() {
+    setState(() {
+      isLoading = true;
+    });
+  }
+
+  void _stopReloadAnimation() {
+    setState(() {
+      isLoading = false;
+    });
+  }
+
+  void _handleKeyEvent(RawKeyEvent event) {
+    if (event is RawKeyDownEvent && event.logicalKey == LogicalKeyboardKey.enter) {
+      _startReloadAnimation();
+      print("helloooo");
+    }
   }
 
   @override
@@ -62,100 +89,101 @@ class _MyHomePageState extends State<MyHomePage>
     return Scaffold(
       appBar: showAppBar
           ? AppBar(
-              backgroundColor: Color(0xFF2E2E2E),
-              automaticallyImplyLeading: true,
-              leading: IconButton(
-                icon: Icon(
-                  Icons.replay_sharp,
-                  color: Color(0xFFB9B9B9),
-                  size: 24,
-                ),
-                onPressed: () {
-                  print('ReloadButton pressed ...');
-                },
+        backgroundColor: Color(0xFF2E2E2E),
+        automaticallyImplyLeading: true,
+        leading: ReloadButton(isLoading: isLoading),
+        title: RawKeyboardListener(
+          focusNode: FocusNode(),
+          onKey: _handleKeyEvent,
+          child: TextField(
+            controller: _searchController,
+            decoration: InputDecoration(
+              hintText: 'Search',
+              hintStyle: TextStyle(
+                fontFamily: 'Poppins',
+                color: Color(0xFF454545),
               ),
-              title: TextField(
-                decoration: InputDecoration(
-                  hintText: 'Search',
-                  hintStyle: TextStyle(
-                    fontFamily: 'Poppins',
-                    color: Color(0xFF454545),
-                  ),
-                  enabledBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(
-                      color: Color(0xFFE8E8E8),
-                      width: 1,
-                    ),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  focusedBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(
-                      color: Color(0xFF5C5C5C),
-                      width: 1,
-                    ),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  errorBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(
-                      color: Color(0xFFFF7F7F),
-                      width: 1,
-                    ),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  focusedErrorBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(
-                      color: Color(0xFFFF7F7F),
-                      width: 1,
-                    ),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  filled: true,
-                  fillColor: Color(0xFFB9B9B9),
-                  suffixIcon: Icon(
-                    Icons.http,
-                    color: Color(0xFF454545),
-                  ),
+              enabledBorder: UnderlineInputBorder(
+                borderSide: BorderSide(
+                  color: Color(0xFFE8E8E8),
+                  width: 1,
                 ),
-                style: TextStyle(
-                  fontFamily: 'Poppins',
+                borderRadius: BorderRadius.circular(10),
+              ),
+              focusedBorder: UnderlineInputBorder(
+                borderSide: BorderSide(
+                  color: Color(0xFF5C5C5C),
+                  width: 1,
+                ),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              errorBorder: UnderlineInputBorder(
+                borderSide: BorderSide(
+                  color: Color(0xFFFF7F7F),
+                  width: 1,
+                ),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              focusedErrorBorder: UnderlineInputBorder(
+                borderSide: BorderSide(
+                  color: Color(0xFFFF7F7F),
+                  width: 1,
+                ),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              filled: true,
+              fillColor: Color(0xFFB9B9B9),
+              suffixIcon: IconButton(
+                icon: Icon(
+                  Icons.http,
                   color: Color(0xFF454545),
                 ),
-                textAlign: TextAlign.start,
+                onPressed: () {
+                  _startReloadAnimation();
+                  print("object");
+                },
               ),
-              actions: [
-                IconButton(
-                  icon: Icon(
-                    isFavorite ? Icons.star : Icons.star_outline_rounded,
-                    color: Color(0xFFB9B9B9),
-                    size: 24,
-                  ),
-                  onPressed: () {
-                    setState(() {
-                      isFavorite = !isFavorite;
-                    });
-                    print('PreferedButton pressed ...');
-                  },
-                ),
-              ],
-              centerTitle: true,
-              elevation: 4,
-            )
+            ),
+            style: TextStyle(
+              fontFamily: 'Poppins',
+              color: Color(0xFF2E2E2E),
+            ),
+          ),
+        ),
+        actions: [
+          IconButton(
+            icon: Icon(
+              isFavorite ? Icons.star : Icons.star_outline_rounded,
+              color: Color(0xFFB9B9B9),
+              size: 24,
+            ),
+            onPressed: () {
+              setState(() {
+                isFavorite = !isFavorite;
+              });
+              print('PreferedButton pressed ...');
+            },
+          ),
+        ],
+        centerTitle: true,
+        elevation: 4,
+      )
           : null,
       body: TabBarView(
         controller: _tabController,
         children: [
-          HomeWidget(),
-          Container(), // Placeholder for second tab
-          Container(), // Placeholder for third tab
-          Container(), // Placeholder for fourth tab
-          Container(), // Placeholder for fifth tab
+          homeWidget,
+          Container(),
+          Container(),
+          Container(),
+          Container(),
         ],
       ),
       bottomNavigationBar: TabBar(
         controller: _tabController,
         unselectedLabelColor: Color(0xFFB9B9B9),
         labelColor: Color(0xFF2E2E2E),
-        indicatorColor: Colors.transparent,
+        indicatorColor: Color(0xFF2E2E2E),
         tabs: [
           Tab(
             icon: Icon(Icons.home),

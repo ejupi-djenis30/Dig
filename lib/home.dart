@@ -1,7 +1,11 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 class HomeWidget extends StatefulWidget {
+  List<TabData> tabs = [
+    TabData(icon: Icons.tab, title: 'New Tab')
+  ];
+  HomeWidget({Key? key}) : super(key: key);
+
   @override
   _HomeWidgetState createState() => _HomeWidgetState();
 }
@@ -9,16 +13,12 @@ class HomeWidget extends StatefulWidget {
 class _HomeWidgetState extends State<HomeWidget>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  List<TabData> _tabs = [
-    TabData(icon: Icons.home, title: 'Home'),
-    TabData(icon: Icons.history, title: 'History'),
-    // Add more tabs as needed
-  ];
+
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: _tabs.length, vsync: this);
+    _tabController = TabController(length: widget.tabs.length, vsync: this);
   }
 
   @override
@@ -36,8 +36,11 @@ class _HomeWidgetState extends State<HomeWidget>
             Expanded(
               child: TabBar(
                 controller: _tabController,
+                unselectedLabelColor: Color(0xFFB9B9B9),
+                labelColor: Color(0xFF2E2E2E),
+                indicatorColor: Color(0xFF2E2E2E),
                 isScrollable: true,
-                tabs: _tabs.map((TabData tab) {
+                tabs: widget.tabs.map((TabData tab) {
                   return Tab(
                     child: Row(
                       children: [
@@ -45,16 +48,11 @@ class _HomeWidgetState extends State<HomeWidget>
                         SizedBox(width: 4),
                         Text(tab.title),
                         SizedBox(width: 4),
-                        if (_tabs.indexOf(tab) != _tabController.index)
                           IconButton(
                             icon: Icon(Icons.close),
                             onPressed: () {
                               setState(() {
-                                _tabs.remove(tab);
-                                _tabController = TabController(
-                                  length: _tabs.length,
-                                  vsync: this,
-                                );
+                                widget.tabs.remove(tab);
                               });
                             },
                             padding: EdgeInsets.zero,
@@ -70,12 +68,8 @@ class _HomeWidgetState extends State<HomeWidget>
               icon: Icon(Icons.add),
               onPressed: () {
                 setState(() {
-                  _tabs.add(
+                  widget.tabs.add(
                     TabData(icon: Icons.tab, title: 'New Tab'),
-                  );
-                  _tabController = TabController(
-                    length: _tabs.length,
-                    vsync: this,
                   );
                 });
               },
@@ -85,11 +79,11 @@ class _HomeWidgetState extends State<HomeWidget>
         Expanded(
           child: TabBarView(
             controller: _tabController,
-            children: _tabs.map((TabData tab) {
+            children: widget.tabs.map((TabData tab) {
               return Center(
                 child: Text(
                   tab.title,
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
                   ),
