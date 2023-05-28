@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'home.dart';
+import 'package:protocol_controller/protocol_controller.dart';
 
 void main() {
   runApp(DigBrowser());
@@ -78,7 +79,8 @@ class _DigHomePageState extends State<DigHomePage>
   }
 
   void _handleKeyEvent(RawKeyEvent event) {
-    if (event is RawKeyDownEvent && event.logicalKey == LogicalKeyboardKey.enter) {
+    if (event is RawKeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.enter) {
       _startReloadAnimation();
       print("helloooo");
     }
@@ -89,85 +91,85 @@ class _DigHomePageState extends State<DigHomePage>
     return Scaffold(
       appBar: showAppBar
           ? AppBar(
-        backgroundColor: Color(0xFF2E2E2E),
-        automaticallyImplyLeading: true,
-        leading: ReloadButton(isLoading: isLoading),
-        title: RawKeyboardListener(
-          focusNode: FocusNode(),
-          onKey: _handleKeyEvent,
-          child: TextField(
-            controller: _searchController,
-            decoration: InputDecoration(
-              hintText: 'Search',
-              hintStyle: TextStyle(
-                fontFamily: 'Poppins',
-                color: Color(0xFF454545),
-              ),
-              enabledBorder: UnderlineInputBorder(
-                borderSide: BorderSide(
-                  color: Color(0xFFE8E8E8),
-                  width: 1,
+              backgroundColor: Color(0xFF2E2E2E),
+              automaticallyImplyLeading: true,
+              leading: ReloadButton(isLoading: isLoading),
+              title: RawKeyboardListener(
+                focusNode: FocusNode(),
+                onKey: _handleKeyEvent,
+                child: TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    hintText: 'Search',
+                    hintStyle: TextStyle(
+                      fontFamily: 'Poppins',
+                      color: Color(0xFF454545),
+                    ),
+                    enabledBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(
+                        color: Color(0xFFE8E8E8),
+                        width: 1,
+                      ),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    focusedBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(
+                        color: Color(0xFF5C5C5C),
+                        width: 1,
+                      ),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    errorBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(
+                        color: Color(0xFFFF7F7F),
+                        width: 1,
+                      ),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    focusedErrorBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(
+                        color: Color(0xFFFF7F7F),
+                        width: 1,
+                      ),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    filled: true,
+                    fillColor: Color(0xFFB9B9B9),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        Icons.http,
+                        color: Color(0xFF454545),
+                      ),
+                      onPressed: () {
+                        _startReloadAnimation();
+                        print("object");
+                      },
+                    ),
+                  ),
+                  style: TextStyle(
+                    fontFamily: 'Poppins',
+                    color: Color(0xFF2E2E2E),
+                  ),
                 ),
-                borderRadius: BorderRadius.circular(10),
               ),
-              focusedBorder: UnderlineInputBorder(
-                borderSide: BorderSide(
-                  color: Color(0xFF5C5C5C),
-                  width: 1,
+              actions: [
+                IconButton(
+                  icon: Icon(
+                    isFavorite ? Icons.star : Icons.star_outline_rounded,
+                    color: Color(0xFFB9B9B9),
+                    size: 24,
+                  ),
+                  onPressed: () {
+                    setState(() {
+                      isFavorite = !isFavorite;
+                    });
+                    print('PreferedButton pressed ...');
+                  },
                 ),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              errorBorder: UnderlineInputBorder(
-                borderSide: BorderSide(
-                  color: Color(0xFFFF7F7F),
-                  width: 1,
-                ),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              focusedErrorBorder: UnderlineInputBorder(
-                borderSide: BorderSide(
-                  color: Color(0xFFFF7F7F),
-                  width: 1,
-                ),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              filled: true,
-              fillColor: Color(0xFFB9B9B9),
-              suffixIcon: IconButton(
-                icon: Icon(
-                  Icons.http,
-                  color: Color(0xFF454545),
-                ),
-                onPressed: () {
-                  _startReloadAnimation();
-                  print("object");
-                },
-              ),
-            ),
-            style: TextStyle(
-              fontFamily: 'Poppins',
-              color: Color(0xFF2E2E2E),
-            ),
-          ),
-        ),
-        actions: [
-          IconButton(
-            icon: Icon(
-              isFavorite ? Icons.star : Icons.star_outline_rounded,
-              color: Color(0xFFB9B9B9),
-              size: 24,
-            ),
-            onPressed: () {
-              setState(() {
-                isFavorite = !isFavorite;
-              });
-              print('PreferedButton pressed ...');
-            },
-          ),
-        ],
-        centerTitle: true,
-        elevation: 4,
-      )
+              ],
+              centerTitle: true,
+              elevation: 4,
+            )
           : null,
       body: TabBarView(
         controller: _tabController,

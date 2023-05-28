@@ -74,6 +74,12 @@
       "languageVersion": "3.0"
     },
     {
+      "name": "logging",
+      "rootUri": "file:///home/djenise/.pub-cache/hosted/pub.dev/logging-1.2.0",
+      "packageUri": "lib/",
+      "languageVersion": "2.19"
+    },
+    {
       "name": "matcher",
       "rootUri": "file:///home/djenise/.pub-cache/hosted/pub.dev/matcher-0.12.15",
       "packageUri": "lib/",
@@ -96,6 +102,12 @@
       "rootUri": "file:///home/djenise/.pub-cache/hosted/pub.dev/path-1.8.3",
       "packageUri": "lib/",
       "languageVersion": "2.12"
+    },
+    {
+      "name": "protocol_controller",
+      "rootUri": "../protocol_controller",
+      "packageUri": "lib/",
+      "languageVersion": "3.0"
     },
     {
       "name": "sky_engine",
@@ -152,7 +164,7 @@
       "languageVersion": "3.0"
     }
   ],
-  "generated": "2023-05-25T09:53:22.173640Z",
+  "generated": "2023-05-28T11:08:33.737979Z",
   "generator": "pub",
   "generatorVersion": "3.0.1"
 }

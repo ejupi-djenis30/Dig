@@ -38,6 +38,10 @@ lints
 3.0
 file:///home/djenise/.pub-cache/hosted/pub.dev/lints-2.1.0/
 file:///home/djenise/.pub-cache/hosted/pub.dev/lints-2.1.0/lib/
+logging
+2.19
+file:///home/djenise/.pub-cache/hosted/pub.dev/logging-1.2.0/
+file:///home/djenise/.pub-cache/hosted/pub.dev/logging-1.2.0/lib/
 matcher
 2.18
 file:///home/djenise/.pub-cache/hosted/pub.dev/matcher-0.12.15/
@@ -86,6 +90,10 @@ Dig
 3.0
 file:///home/djenise/Projects/Dig/
 file:///home/djenise/Projects/Dig/lib/
+protocol_controller
+3.0
+file:///home/djenise/Projects/Dig/protocol_controller/
+file:///home/djenise/Projects/Dig/protocol_controller/lib/
 sky_engine
 3.0
 file:///opt/flutter/bin/cache/pkg/sky_engine/
