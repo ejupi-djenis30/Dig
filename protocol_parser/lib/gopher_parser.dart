@@ -8,10 +8,7 @@ class GopherElement {
   String host;
   int port;
 
-  String debug;
-
-  GopherElement(this.element_type, this.text, this.path, this.host, this.port,
-      this.debug);
+  GopherElement(this.element_type, this.text, this.path, this.host, this.port);
 }
 
 class GopherParser extends ProtocolParser<GopherElement> {
@@ -74,20 +71,12 @@ class GopherParser extends ProtocolParser<GopherElement> {
           path = splitted_line[1];
           host = splitted_line[2];
           port = int.parse(splitted_line[3]);
-          debug = "TEXT " + splitted_line[0] +
-              " TAB PATH " +
-              splitted_line[1] +
-              " TAB HOST " +
-              splitted_line[2] +
-              " TAB PORT " +
-              splitted_line[3];
         }
       } catch (e) {
         return;
       }
 
-      GopherElement element =
-          GopherElement(identifier, text, path, host, port, debug);
+      GopherElement element = GopherElement(identifier, text, path, host, port);
       elements.add(element);
     });
 

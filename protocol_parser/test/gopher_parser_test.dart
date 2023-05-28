@@ -23,16 +23,6 @@ void main() {
         "Welcome to the SDF Public Access UNIX System .. est. 1987");
 
     element = parsed[13];
-
-    final Logger my_logger = Logger('mylogger');
-    final log_file = File('txtlog.txt');
-
-    my_logger.onRecord.listen((record) {
-      log_file.writeAsStringSync(record.message + "\n");
-    });
-
-    my_logger.info(element.debug);
-
     
     expect(element.element_type, GopherController.MENU_SELECTOR);
     expect(element.text, "SDF PHLOGOSPHERE (439 phlogs)");
