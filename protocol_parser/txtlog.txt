@@ -1,0 +1,1 @@
+TEXT SDF PHLOGOSPHERE (439 phlogs) TAB PATH /phlogs/ TAB HOST gopher.club TAB PORT 70

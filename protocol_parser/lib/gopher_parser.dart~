@@ -1,0 +1,21 @@
+import 'package:protocol_parser/protocol_parser.dart';
+
+class GopherElement {
+  String element_type;
+  String text;
+  String path;
+  String host;
+  int port;
+
+  GopherElement(this.element_type, this.text, this.path, this.host, this.port);
+}
+
+class GopherParser extends ProtocolParser<GopherElement> {
+  GopherParser(String text) : super(text);
+
+  @override
+  List<GopherElement> parse() {
+    return [];
+
+  }
+}
