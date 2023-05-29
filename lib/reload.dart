@@ -1,10 +1,17 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 
+// ignore: must_be_immutable
 class ReloadButton extends StatefulWidget {
   bool isLoading;
+  final void Function(String) searchFunction;
+  String? currentUrl;
 
-  ReloadButton({required this.isLoading});
+  ReloadButton(
+      {super.key,
+      required this.isLoading,
+      required this.currentUrl,
+      required this.searchFunction});
 
   @override
   _ReloadButtonState createState() => _ReloadButtonState();
@@ -68,7 +75,9 @@ class _ReloadButtonState extends State<ReloadButton>
         animation: _rotationAnimation,
         builder: (context, child) {
           return Transform.rotate(
-            angle: widget.isLoading ? _rotationAnimation.value * 2.0 * -math.pi : 0.0,
+            angle: widget.isLoading
+                ? _rotationAnimation.value * 2.0 * -math.pi
+                : 0.0,
             child: Icon(
               Icons.replay_sharp,
               color: Color(0xFFB9B9B9),
@@ -78,14 +87,16 @@ class _ReloadButtonState extends State<ReloadButton>
         },
       ),
       onPressed: () {
-        if (widget.isLoading) {
-          _stopRotation();
+        if (widget.currentUrl != null) {
+          widget.searchFunction(widget.currentUrl!);
         } else {
-          _startRotation();
+          if (widget.isLoading) {
+            _stopRotation();
+          } else {
+            _startRotation();
+          }
         }
-        print(widget.isLoading);
       },
     );
   }
 }
-

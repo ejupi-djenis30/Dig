@@ -1,15 +1,21 @@
 import 'package:Dig/reload.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-
-import 'home.dart';
-import 'package:protocol_controller/protocol_controller.dart';
+import 'package:Dig/history.dart';
+import 'package:Dig/home.dart';
+import 'package:Dig/settings.dart';
+import 'package:Dig/download.dart';
+import 'package:Dig/favourite.dart';
+import 'package:protocol_controller/gopher_controller.dart';
+import 'package:protocol_parser/gopher_parser.dart';
 
 void main() {
   runApp(DigBrowser());
 }
 
 class DigBrowser extends StatelessWidget {
+  const DigBrowser({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -33,29 +39,64 @@ class DigHomePage extends StatefulWidget {
 
 class _DigHomePageState extends State<DigHomePage>
     with SingleTickerProviderStateMixin {
-  late TabController _tabController;
   late HomeWidget homeWidget;
-  bool isFavorite = false;
-  late bool showAppBar;
+  late SettingsWidget settingsWidget;
+  late HistoryWidget historyWidget;
+  late DownloadHistoryWidget downloadWidget;
+  late FavoritePagesWidget favoritePagesWidget;
+
+  List<String> history = [];
+  List<String> preferedPages = [];
+  List<String> downloadHistory = [];
+  List<TabData> tabData = [];
+
   late TextEditingController _searchController;
+  late TabController _tabController;
+
   bool isLoading = false;
-  late ReloadButton reloadButton;
+  bool showAppBar = false;
+  bool isFavorite = false;
 
   @override
   void initState() {
     super.initState();
-    homeWidget = HomeWidget();
     _tabController = TabController(length: 5, vsync: this);
-    showAppBar = _tabController.index == 0 && homeWidget.tabs.isNotEmpty;
     _tabController.addListener(_handleTabCountChanged);
     _searchController = TextEditingController();
-    reloadButton = ReloadButton(isLoading: isLoading);
+
+    homeWidget = HomeWidget(
+      onTabCountChanged: _handleTabCountChanged,
+      tabs: tabData,
+      searchFunction: _searchGopher,
+      preferedTabs: preferedPages,
+      changePreferedState: changePreferedState,
+      changePreferedStateOn: changePreferedStateOn,
+    );
+    settingsWidget = SettingsWidget();
+    historyWidget =
+        HistoryWidget(historyItems: history, searchFunction: _searchGopher);
+    downloadWidget = DownloadHistoryWidget(downloadItems: downloadHistory);
+    favoritePagesWidget = FavoritePagesWidget(
+        favoritePages: preferedPages, searchFunction: _searchGopher);
   }
 
   void _handleTabCountChanged() {
+    bool isFirstTab = _tabController.index == 0;
+    bool hasTabs = homeWidget.tabs.isNotEmpty;
     setState(() {
-      showAppBar = _tabController.index == 0 && homeWidget.tabs.isNotEmpty;
-      isLoading = reloadButton.isLoading;
+      showAppBar = isFirstTab && hasTabs;
+    });
+  }
+
+  void changePreferedState() {
+    setState(() {
+      isFavorite = false;
+    });
+  }
+
+  void changePreferedStateOn() {
+    setState(() {
+      isFavorite = true;
     });
   }
 
@@ -80,10 +121,32 @@ class _DigHomePageState extends State<DigHomePage>
 
   void _handleKeyEvent(RawKeyEvent event) {
     if (event is RawKeyDownEvent &&
-        event.logicalKey == LogicalKeyboardKey.enter) {
-      _startReloadAnimation();
-      print("helloooo");
+        event.logicalKey == LogicalKeyboardKey.enter &&
+        _searchController.text.isNotEmpty) {
+      _searchGopher(_searchController.text);
+      _searchController.clear();
     }
+  }
+
+  void _searchGopher(String url) {
+    _startReloadAnimation();
+    Uri searchUrl =
+        Uri.parse(url.contains("gopher://") ? url : "gopher://" + url);
+    GopherController initRequest = GopherController(
+        searchUrl.host,
+        searchUrl.hasPort ? searchUrl.port : 70,
+        searchUrl.hasAbsolutePath ? searchUrl.path : "/",
+        GopherController.NONE_SELECTOR);
+    initRequest.make_request(searchUrl.query).then((value) {
+      GopherParser parser = GopherParser(value);
+      List<GopherElement> elements = parser.parse();
+      setState(() {
+        tabData[homeWidget.tabController.index].title = searchUrl.toString();
+        tabData[homeWidget.tabController.index].children = elements;
+      });
+      history.add(searchUrl.toString());
+      _stopReloadAnimation();
+    });
   }
 
   @override
@@ -93,7 +156,11 @@ class _DigHomePageState extends State<DigHomePage>
           ? AppBar(
               backgroundColor: Color(0xFF2E2E2E),
               automaticallyImplyLeading: true,
-              leading: ReloadButton(isLoading: isLoading),
+              leading: ReloadButton(
+                  isLoading: isLoading,
+                  currentUrl:
+                      homeWidget.tabs[homeWidget.tabController.index].title,
+                  searchFunction: _searchGopher),
               title: RawKeyboardListener(
                 focusNode: FocusNode(),
                 onKey: _handleKeyEvent,
@@ -135,15 +202,13 @@ class _DigHomePageState extends State<DigHomePage>
                     ),
                     filled: true,
                     fillColor: Color(0xFFB9B9B9),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        Icons.http,
+                    suffixIcon: Container(
+                      width: 24,
+                      height: 24,
+                      child: Image.asset(
+                        'assets/gopher.png',
                         color: Color(0xFF454545),
                       ),
-                      onPressed: () {
-                        _startReloadAnimation();
-                        print("object");
-                      },
                     ),
                   ),
                   style: TextStyle(
@@ -161,9 +226,18 @@ class _DigHomePageState extends State<DigHomePage>
                   ),
                   onPressed: () {
                     setState(() {
-                      isFavorite = !isFavorite;
+                      if (preferedPages.contains(homeWidget
+                          .tabs[homeWidget.tabController.index].title)) {
+                        preferedPages.remove(homeWidget
+                            .tabs[homeWidget.tabController.index].title);
+
+                        isFavorite = false;
+                      } else {
+                        preferedPages.add(homeWidget
+                            .tabs[homeWidget.tabController.index].title);
+                        isFavorite = true;
+                      }
                     });
-                    print('PreferedButton pressed ...');
                   },
                 ),
               ],
@@ -175,10 +249,10 @@ class _DigHomePageState extends State<DigHomePage>
         controller: _tabController,
         children: [
           homeWidget,
-          Container(),
-          Container(),
-          Container(),
-          Container(),
+          historyWidget,
+          favoritePagesWidget,
+          settingsWidget,
+          downloadWidget,
         ],
       ),
       bottomNavigationBar: TabBar(

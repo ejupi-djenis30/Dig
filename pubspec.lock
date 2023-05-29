@@ -138,6 +138,13 @@ packages:
       relative: true
     source: path
     version: "0.0.1"
+  protocol_parser:
+    dependency: "direct main"
+    description:
+      path: protocol_parser
+      relative: true
+    source: path
+    version: "0.0.1"
   sky_engine:
     dependency: transitive
     description: flutter

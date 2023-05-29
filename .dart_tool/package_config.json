@@ -110,6 +110,12 @@
       "languageVersion": "3.0"
     },
     {
+      "name": "protocol_parser",
+      "rootUri": "../protocol_parser",
+      "packageUri": "lib/",
+      "languageVersion": "3.0"
+    },
+    {
       "name": "sky_engine",
       "rootUri": "file:///opt/flutter/bin/cache/pkg/sky_engine",
       "packageUri": "lib/",
@@ -164,7 +170,7 @@
       "languageVersion": "3.0"
     }
   ],
-  "generated": "2023-05-28T11:08:33.737979Z",
+  "generated": "2023-05-29T10:05:29.924153Z",
   "generator": "pub",
   "generatorVersion": "3.0.1"
 }

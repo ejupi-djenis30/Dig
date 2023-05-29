@@ -94,6 +94,10 @@ protocol_controller
 3.0
 file:///home/djenise/Projects/Dig/protocol_controller/
 file:///home/djenise/Projects/Dig/protocol_controller/lib/
+protocol_parser
+3.0
+file:///home/djenise/Projects/Dig/protocol_parser/
+file:///home/djenise/Projects/Dig/protocol_parser/lib/
 sky_engine
 3.0
 file:///opt/flutter/bin/cache/pkg/sky_engine/
