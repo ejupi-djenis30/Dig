@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 
-// ignore: must_be_immutable
 class ReloadButton extends StatefulWidget {
   bool isLoading;
   final void Function(String) searchFunction;
