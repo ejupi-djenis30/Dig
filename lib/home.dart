@@ -2,25 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:protocol_controller/gopher_controller.dart';
 import 'package:protocol_parser/gopher_parser.dart';
 
-// ignore: must_be_immutable
 class HomeWidget extends StatefulWidget {
   List<TabData> tabs;
-  List<String> preferedTabs;
   bool showAppBar = false;
   late TabController tabController;
   final VoidCallback onTabCountChanged;
-  final VoidCallback changePreferedState;
-  final VoidCallback changePreferedStateOn;
   final void Function(String) searchFunction;
+  final void Function(String) downloadFunction;
 
   HomeWidget(
       {Key? key,
       required this.onTabCountChanged,
       required this.tabs,
       required this.searchFunction,
-      required this.preferedTabs,
-      required this.changePreferedState,
-      required this.changePreferedStateOn})
+      required this.downloadFunction})
       : super(key: key);
 
   @override
@@ -33,14 +28,6 @@ class _HomeWidgetState extends State<HomeWidget> with TickerProviderStateMixin {
     super.initState();
     widget.tabController =
         TabController(length: widget.tabs.length, vsync: this);
-    widget.tabController.addListener(() {
-      if (widget.preferedTabs
-          .contains(widget.tabs[widget.tabController.index].title)) {
-        widget.changePreferedStateOn.call();
-      } else {
-        widget.changePreferedState.call();
-      }
-    });
   }
 
   @override
@@ -126,8 +113,8 @@ class _HomeWidgetState extends State<HomeWidget> with TickerProviderStateMixin {
           child: TabBarView(
             controller: widget.tabController,
             children: [
-              ...widget.tabs
-                  .map((TabData tab) => tab.createTab(widget.searchFunction)),
+              ...widget.tabs.map((TabData tab) => tab.createTab(
+                  widget.searchFunction, widget.downloadFunction)),
             ],
           ),
         ),
@@ -143,24 +130,29 @@ class TabData {
 
   TabData({required this.icon, required this.title, required this.children});
 
-  Widget createTab(void Function(String) search) {
+  Widget createTab(
+      void Function(String) search, void Function(String) download) {
     return ListView.builder(
       itemCount: children.length,
       itemBuilder: (context, index) {
         final gopherElement = children[index];
         late final IconData? icon;
         Uri elementUri = Uri(
-            scheme: "gopher",
-            host: gopherElement.host,
-            port: gopherElement.port,
-            path: gopherElement.path);
+          scheme: "gopher",
+          host: gopherElement.host,
+          port: gopherElement.port,
+          path: gopherElement.path,
+        );
         Null Function()? onTap = () {
           search(elementUri.toString());
         };
-        SearchWidget? subtitle = null;
+        SearchWidget? subtitle;
         switch (gopherElement.element_type) {
           case GopherController.BINARY_SELECTOR:
             icon = Icons.file_copy_outlined;
+            onTap = () {
+              download(elementUri.toString());
+            };
             break;
           case GopherController.ERROR_SELECTOR:
             onTap = null;
@@ -168,12 +160,21 @@ class TabData {
             break;
           case GopherController.FILE_SELECTOR:
             icon = Icons.file_copy;
+            onTap = () {
+              download(elementUri.toString());
+            };
             break;
           case GopherController.GIF_SELECTOR:
             icon = Icons.gif;
+            onTap = () {
+              download(elementUri.toString());
+            };
             break;
           case GopherController.IMAGE_SELECTOR:
             icon = Icons.image;
+            onTap = () {
+              download(elementUri.toString());
+            };
             break;
           case GopherController.INFO_SELECTOR:
             icon = null;
@@ -181,6 +182,9 @@ class TabData {
             break;
           case GopherController.INTERNET_SELECTOR:
             icon = Icons.public;
+            onTap = () {
+              download(elementUri.toString());
+            };
             break;
           case GopherController.MENU_SELECTOR:
             icon = Icons.menu;
@@ -196,7 +200,7 @@ class TabData {
             break;
         }
         return ListTile(
-          leading: icon == null ? null : Icon(icon),
+          leading: icon != null ? Icon(icon) : null,
           title: Text(gopherElement.text),
           subtitle: subtitle,
           onTap: onTap,
@@ -229,12 +233,12 @@ class SearchWidget extends StatelessWidget {
           icon: Icon(Icons.search),
           onPressed: () {
             search(Uri(
-                    scheme: initUri.scheme,
-                    path: initUri.path,
-                    host: initUri.host,
-                    port: initUri.port,
-                    query: searchController.text)
-                .toString());
+              scheme: initUri.scheme,
+              path: initUri.path,
+              host: initUri.host,
+              port: initUri.port,
+              query: searchController.text,
+            ).toString());
           },
         ),
       ],

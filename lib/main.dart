@@ -1,20 +1,23 @@
+import 'dart:io';
+
 import 'package:Dig/reload.dart';
+import 'package:Dig/settings.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:Dig/history.dart';
-import 'package:Dig/home.dart';
-import 'package:Dig/settings.dart';
-import 'package:Dig/download.dart';
-import 'package:Dig/favourite.dart';
 import 'package:protocol_controller/gopher_controller.dart';
 import 'package:protocol_parser/gopher_parser.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import 'download.dart';
+import 'history.dart';
+import 'home.dart';
 
 void main() {
   runApp(DigBrowser());
 }
 
 class DigBrowser extends StatelessWidget {
-  const DigBrowser({super.key});
+  const DigBrowser({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -39,28 +42,28 @@ class DigHomePage extends StatefulWidget {
 
 class _DigHomePageState extends State<DigHomePage>
     with SingleTickerProviderStateMixin {
+  final List<String> history = [];
+  final List<String> downloadHistory = [];
+  final List<TabData> tabData = [];
+
   late HomeWidget homeWidget;
   late SettingsWidget settingsWidget;
   late HistoryWidget historyWidget;
   late DownloadHistoryWidget downloadWidget;
-  late FavoritePagesWidget favoritePagesWidget;
-
-  List<String> history = [];
-  List<String> preferedPages = [];
-  List<String> downloadHistory = [];
-  List<TabData> tabData = [];
 
   late TextEditingController _searchController;
   late TabController _tabController;
 
   bool isLoading = false;
   bool showAppBar = false;
-  bool isFavorite = false;
+
+  int currentHistoryIndex = -1;
+  int maxHistoryIndex = -1;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _tabController.addListener(_handleTabCountChanged);
     _searchController = TextEditingController();
 
@@ -68,36 +71,14 @@ class _DigHomePageState extends State<DigHomePage>
       onTabCountChanged: _handleTabCountChanged,
       tabs: tabData,
       searchFunction: _searchGopher,
-      preferedTabs: preferedPages,
-      changePreferedState: changePreferedState,
-      changePreferedStateOn: changePreferedStateOn,
+      downloadFunction: _downloadGopher,
     );
     settingsWidget = SettingsWidget();
-    historyWidget =
-        HistoryWidget(historyItems: history, searchFunction: _searchGopher);
+    historyWidget = HistoryWidget(
+      historyItems: history,
+      searchFunction: _searchGopher,
+    );
     downloadWidget = DownloadHistoryWidget(downloadItems: downloadHistory);
-    favoritePagesWidget = FavoritePagesWidget(
-        favoritePages: preferedPages, searchFunction: _searchGopher);
-  }
-
-  void _handleTabCountChanged() {
-    bool isFirstTab = _tabController.index == 0;
-    bool hasTabs = homeWidget.tabs.isNotEmpty;
-    setState(() {
-      showAppBar = isFirstTab && hasTabs;
-    });
-  }
-
-  void changePreferedState() {
-    setState(() {
-      isFavorite = false;
-    });
-  }
-
-  void changePreferedStateOn() {
-    setState(() {
-      isFavorite = true;
-    });
   }
 
   @override
@@ -105,6 +86,31 @@ class _DigHomePageState extends State<DigHomePage>
     _tabController.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _handleTabCountChanged() {
+    bool isFirstTab = _tabController.index == 0;
+    bool hasTabs = homeWidget.tabs.isNotEmpty;
+
+    setState(() {
+      showAppBar = isFirstTab && hasTabs;
+    });
+  }
+
+  void goBack() {
+    if (currentHistoryIndex > 0) {
+      currentHistoryIndex--;
+      String previousUrl = history[currentHistoryIndex];
+      _searchGopher(previousUrl);
+    }
+  }
+
+  void goForward() {
+    if (currentHistoryIndex < maxHistoryIndex) {
+      currentHistoryIndex++;
+      String nextUrl = history[currentHistoryIndex];
+      _searchGopher(nextUrl);
+    }
   }
 
   void _startReloadAnimation() {
@@ -128,24 +134,83 @@ class _DigHomePageState extends State<DigHomePage>
     }
   }
 
+  Future<String> _gopherRequest(Uri searchUrl) {
+    GopherController initRequest = GopherController(
+      searchUrl.host,
+      searchUrl.hasPort ? searchUrl.port : 70,
+      searchUrl.hasAbsolutePath ? searchUrl.path : "/",
+      GopherController.NONE_SELECTOR,
+    );
+
+    return initRequest.make_request(searchUrl.query);
+  }
+
+  void _downloadGopher(String url) {
+    _startReloadAnimation();
+    String downloadsDirectory = "";
+    if (Platform.isWindows) {
+      downloadsDirectory = Platform.environment['USERPROFILE']! + "\\";
+    } else if (Platform.isLinux || Platform.isMacOS) {
+      downloadsDirectory = Platform.environment['HOME']! + "/";
+    }
+    Uri searchUrl =
+        Uri.parse(url.contains("gopher://") ? url : "gopher://" + url);
+    _gopherRequest(searchUrl).then((value) {
+      File file = File(downloadsDirectory + searchUrl.pathSegments.last);
+      file.writeAsBytes(value.codeUnits);
+      if (searchUrl.pathSegments.last.contains(".html")) {
+        canLaunchUrl(file.uri).then((value) {
+          if (value) {
+            launchUrl(file.uri);
+          }
+        });
+      }
+      if (!downloadHistory.contains(searchUrl.pathSegments.last)) {
+        downloadHistory.add(searchUrl.pathSegments.last);
+      }
+      _stopReloadAnimation();
+    }).catchError((error) {
+      _stopReloadAnimation();
+    });
+  }
+
   void _searchGopher(String url) {
     _startReloadAnimation();
     Uri searchUrl =
         Uri.parse(url.contains("gopher://") ? url : "gopher://" + url);
-    GopherController initRequest = GopherController(
-        searchUrl.host,
-        searchUrl.hasPort ? searchUrl.port : 70,
-        searchUrl.hasAbsolutePath ? searchUrl.path : "/",
-        GopherController.NONE_SELECTOR);
-    initRequest.make_request(searchUrl.query).then((value) {
+
+    _gopherRequest(searchUrl).then((value) {
       GopherParser parser = GopherParser(value);
       List<GopherElement> elements = parser.parse();
       setState(() {
         tabData[homeWidget.tabController.index].title = searchUrl.toString();
         tabData[homeWidget.tabController.index].children = elements;
       });
-      history.add(searchUrl.toString());
+      if (!history.contains(searchUrl.toString())) {
+        history.add(searchUrl.toString());
+      }
       _stopReloadAnimation();
+    }).catchError((error) {
+      setState(() {
+        tabData[homeWidget.tabController.index].title = searchUrl.toString();
+        tabData[homeWidget.tabController.index].children = [
+          GopherElement(
+              GopherController.ERROR_SELECTOR, error.toString(), "", "", 70)
+        ];
+      });
+
+      _stopReloadAnimation();
+    });
+
+    setState(() {
+      if (history.isNotEmpty) {
+        currentHistoryIndex = history
+            .indexOf(homeWidget.tabs[homeWidget.tabController.index].title);
+        maxHistoryIndex = history.length - 1;
+      } else {
+        currentHistoryIndex = -1;
+        maxHistoryIndex = -1;
+      }
     });
   }
 
@@ -157,10 +222,11 @@ class _DigHomePageState extends State<DigHomePage>
               backgroundColor: Color(0xFF2E2E2E),
               automaticallyImplyLeading: true,
               leading: ReloadButton(
-                  isLoading: isLoading,
-                  currentUrl:
-                      homeWidget.tabs[homeWidget.tabController.index].title,
-                  searchFunction: _searchGopher),
+                isLoading: isLoading,
+                currentUrl:
+                    homeWidget.tabs[homeWidget.tabController.index].title,
+                searchFunction: _searchGopher,
+              ),
               title: RawKeyboardListener(
                 focusNode: FocusNode(),
                 onKey: _handleKeyEvent,
@@ -219,27 +285,16 @@ class _DigHomePageState extends State<DigHomePage>
               ),
               actions: [
                 IconButton(
-                  icon: Icon(
-                    isFavorite ? Icons.star : Icons.star_outline_rounded,
-                    color: Color(0xFFB9B9B9),
-                    size: 24,
-                  ),
-                  onPressed: () {
-                    setState(() {
-                      if (preferedPages.contains(homeWidget
-                          .tabs[homeWidget.tabController.index].title)) {
-                        preferedPages.remove(homeWidget
-                            .tabs[homeWidget.tabController.index].title);
-
-                        isFavorite = false;
-                      } else {
-                        preferedPages.add(homeWidget
-                            .tabs[homeWidget.tabController.index].title);
-                        isFavorite = true;
-                      }
-                    });
-                  },
+                  color: Color(0xFFE8E8E8),
+                  icon: Icon(Icons.arrow_back),
+                  onPressed: currentHistoryIndex > 0 ? goBack : null,
                 ),
+                IconButton(
+                  color: Color(0xFFE8E8E8),
+                  icon: Icon(Icons.arrow_forward),
+                  onPressed:
+                      currentHistoryIndex < maxHistoryIndex ? goForward : null,
+                )
               ],
               centerTitle: true,
               elevation: 4,
@@ -248,9 +303,15 @@ class _DigHomePageState extends State<DigHomePage>
       body: TabBarView(
         controller: _tabController,
         children: [
-          homeWidget,
+          AnimatedSwitcher(
+            duration: Duration(milliseconds: 500),
+            child: isLoading
+                ? Center(
+                    child: CircularProgressIndicator(),
+                  )
+                : homeWidget,
+          ),
           historyWidget,
-          favoritePagesWidget,
           settingsWidget,
           downloadWidget,
         ],
@@ -266,9 +327,6 @@ class _DigHomePageState extends State<DigHomePage>
           ),
           Tab(
             icon: Icon(Icons.history),
-          ),
-          Tab(
-            icon: Icon(Icons.star),
           ),
           Tab(
             icon: Icon(Icons.settings),

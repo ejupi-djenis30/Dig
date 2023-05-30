@@ -62,6 +62,12 @@
       "languageVersion": "3.0"
     },
     {
+      "name": "flutter_web_plugins",
+      "rootUri": "file:///opt/flutter/packages/flutter_web_plugins",
+      "packageUri": "lib/",
+      "languageVersion": "3.0"
+    },
+    {
       "name": "js",
       "rootUri": "file:///home/djenise/.pub-cache/hosted/pub.dev/js-0.6.7",
       "packageUri": "lib/",
@@ -102,6 +108,12 @@
       "rootUri": "file:///home/djenise/.pub-cache/hosted/pub.dev/path-1.8.3",
       "packageUri": "lib/",
       "languageVersion": "2.12"
+    },
+    {
+      "name": "plugin_platform_interface",
+      "rootUri": "file:///home/djenise/.pub-cache/hosted/pub.dev/plugin_platform_interface-2.1.4",
+      "packageUri": "lib/",
+      "languageVersion": "2.17"
     },
     {
       "name": "protocol_controller",
@@ -158,6 +170,54 @@
       "languageVersion": "2.18"
     },
     {
+      "name": "url_launcher",
+      "rootUri": "file:///home/djenise/.pub-cache/hosted/pub.dev/url_launcher-6.1.11",
+      "packageUri": "lib/",
+      "languageVersion": "2.18"
+    },
+    {
+      "name": "url_launcher_android",
+      "rootUri": "file:///home/djenise/.pub-cache/hosted/pub.dev/url_launcher_android-6.0.35",
+      "packageUri": "lib/",
+      "languageVersion": "2.18"
+    },
+    {
+      "name": "url_launcher_ios",
+      "rootUri": "file:///home/djenise/.pub-cache/hosted/pub.dev/url_launcher_ios-6.1.4",
+      "packageUri": "lib/",
+      "languageVersion": "2.18"
+    },
+    {
+      "name": "url_launcher_linux",
+      "rootUri": "file:///home/djenise/.pub-cache/hosted/pub.dev/url_launcher_linux-3.0.5",
+      "packageUri": "lib/",
+      "languageVersion": "2.17"
+    },
+    {
+      "name": "url_launcher_macos",
+      "rootUri": "file:///home/djenise/.pub-cache/hosted/pub.dev/url_launcher_macos-3.0.5",
+      "packageUri": "lib/",
+      "languageVersion": "2.17"
+    },
+    {
+      "name": "url_launcher_platform_interface",
+      "rootUri": "file:///home/djenise/.pub-cache/hosted/pub.dev/url_launcher_platform_interface-2.1.2",
+      "packageUri": "lib/",
+      "languageVersion": "2.12"
+    },
+    {
+      "name": "url_launcher_web",
+      "rootUri": "file:///home/djenise/.pub-cache/hosted/pub.dev/url_launcher_web-2.0.17",
+      "packageUri": "lib/",
+      "languageVersion": "2.18"
+    },
+    {
+      "name": "url_launcher_windows",
+      "rootUri": "file:///home/djenise/.pub-cache/hosted/pub.dev/url_launcher_windows-3.0.6",
+      "packageUri": "lib/",
+      "languageVersion": "2.17"
+    },
+    {
       "name": "vector_math",
       "rootUri": "file:///home/djenise/.pub-cache/hosted/pub.dev/vector_math-2.1.4",
       "packageUri": "lib/",
@@ -170,7 +230,7 @@
       "languageVersion": "3.0"
     }
   ],
-  "generated": "2023-05-29T10:05:29.924153Z",
+  "generated": "2023-05-30T19:32:32.456154Z",
   "generator": "pub",
   "generatorVersion": "3.0.1"
 }
