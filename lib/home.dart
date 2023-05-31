@@ -127,6 +127,8 @@ class TabData {
   IconData icon;
   String title;
   List<GopherElement> children;
+  List<String> tabHistoryTop = [];
+  List<String> tabHistoryBottom = [];
 
   TabData({required this.icon, required this.title, required this.children});
 

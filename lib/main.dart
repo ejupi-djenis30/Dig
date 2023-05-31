@@ -56,9 +56,8 @@ class _DigHomePageState extends State<DigHomePage>
 
   bool isLoading = false;
   bool showAppBar = false;
-
-  int currentHistoryIndex = -1;
-  int maxHistoryIndex = -1;
+  bool gotBack = false;
+  bool getUp = false;
 
   @override
   void initState() {
@@ -98,19 +97,54 @@ class _DigHomePageState extends State<DigHomePage>
   }
 
   void goBack() {
-    if (currentHistoryIndex > 0) {
-      currentHistoryIndex--;
-      String previousUrl = history[currentHistoryIndex];
-      _searchGopher(previousUrl);
-    }
+    print("Back before " +
+        "" +
+        tabData[homeWidget.tabController.index].tabHistoryTop.toString() +
+        "" +
+        tabData[homeWidget.tabController.index].title +
+        "" +
+        tabData[homeWidget.tabController.index].tabHistoryBottom.toString() +
+        "");
+    setState(() {
+      gotBack = true;
+      String url =
+          tabData[homeWidget.tabController.index].tabHistoryBottom.removeLast();
+      tabData[homeWidget.tabController.index]
+          .tabHistoryTop
+          .insert(0, tabData[homeWidget.tabController.index].title);
+      _searchGopher(url);
+    });
+
+    print("Back after" +
+        "Top:" +
+        tabData[homeWidget.tabController.index].tabHistoryTop.toString() +
+        "" +
+        tabData[homeWidget.tabController.index].title +
+        "Bottom:" +
+        tabData[homeWidget.tabController.index].tabHistoryBottom.toString() +
+        "  " +
+        (tabData[homeWidget.tabController.index].tabHistoryBottom.isEmpty
+            ? "false"
+            : "true"));
   }
 
   void goForward() {
-    if (currentHistoryIndex < maxHistoryIndex) {
-      currentHistoryIndex++;
-      String nextUrl = history[currentHistoryIndex];
-      _searchGopher(nextUrl);
-    }
+    getUp = true;
+
+    String url =
+        tabData[homeWidget.tabController.index].tabHistoryTop.removeAt(0);
+    tabData[homeWidget.tabController.index]
+        .tabHistoryBottom
+        .add(tabData[homeWidget.tabController.index].title);
+    _searchGopher(url);
+    print("Forward " +
+        "" +
+        tabData[homeWidget.tabController.index].tabHistoryTop.toString() +
+        "" +
+        tabData[homeWidget.tabController.index].title +
+        "" +
+        tabData[homeWidget.tabController.index].tabHistoryBottom.toString() +
+        "");
   }
 
   void _startReloadAnimation() {
@@ -149,14 +183,18 @@ class _DigHomePageState extends State<DigHomePage>
     _startReloadAnimation();
     String downloadsDirectory = "";
     if (Platform.isWindows) {
-      downloadsDirectory = Platform.environment['USERPROFILE']! + "\\";
+      downloadsDirectory = Platform.environment['USERPROFILE']!;
     } else if (Platform.isLinux || Platform.isMacOS) {
-      downloadsDirectory = Platform.environment['HOME']! + "/";
+      downloadsDirectory = Platform.environment['HOME']!;
+    } else if (Platform.isAndroid) {
+      downloadsDirectory = Platform.environment['EXTERNAL_STORAGE']!;
     }
     Uri searchUrl =
         Uri.parse(url.contains("gopher://") ? url : "gopher://" + url);
     _gopherRequest(searchUrl).then((value) {
-      File file = File(downloadsDirectory + searchUrl.pathSegments.last);
+      File file = File(downloadsDirectory +
+          Platform.pathSeparator +
+          searchUrl.pathSegments.last);
       file.writeAsBytes(value.codeUnits);
       if (searchUrl.pathSegments.last.contains(".html")) {
         canLaunchUrl(file.uri).then((value) {
@@ -178,17 +216,34 @@ class _DigHomePageState extends State<DigHomePage>
     _startReloadAnimation();
     Uri searchUrl =
         Uri.parse(url.contains("gopher://") ? url : "gopher://" + url);
-
     _gopherRequest(searchUrl).then((value) {
       GopherParser parser = GopherParser(value);
       List<GopherElement> elements = parser.parse();
       setState(() {
+        if (tabData[homeWidget.tabController.index]
+                .title
+                .contains("gopher://") &&
+            !gotBack &&
+            !getUp &&
+            !tabData[homeWidget.tabController.index]
+                .tabHistoryBottom
+                .contains(tabData[homeWidget.tabController.index].title)) {
+          tabData[homeWidget.tabController.index]
+              .tabHistoryBottom
+              .add(tabData[homeWidget.tabController.index].title);
+        }
+        if (gotBack &&
+            !tabData[homeWidget.tabController.index]
+                .tabHistoryTop
+                .contains(searchUrl.toString())) {
+          tabData[homeWidget.tabController.index].tabHistoryTop.clear();
+        }
         tabData[homeWidget.tabController.index].title = searchUrl.toString();
         tabData[homeWidget.tabController.index].children = elements;
+        if (!history.contains(searchUrl.toString())) {
+          history.add(searchUrl.toString());
+        }
       });
-      if (!history.contains(searchUrl.toString())) {
-        history.add(searchUrl.toString());
-      }
       _stopReloadAnimation();
     }).catchError((error) {
       setState(() {
@@ -202,16 +257,8 @@ class _DigHomePageState extends State<DigHomePage>
       _stopReloadAnimation();
     });
 
-    setState(() {
-      if (history.isNotEmpty) {
-        currentHistoryIndex = history
-            .indexOf(homeWidget.tabs[homeWidget.tabController.index].title);
-        maxHistoryIndex = history.length - 1;
-      } else {
-        currentHistoryIndex = -1;
-        maxHistoryIndex = -1;
-      }
-    });
+    getUp = false;
+    gotBack = false;
   }
 
   @override
@@ -287,13 +334,20 @@ class _DigHomePageState extends State<DigHomePage>
                 IconButton(
                   color: Color(0xFFE8E8E8),
                   icon: Icon(Icons.arrow_back),
-                  onPressed: currentHistoryIndex > 0 ? goBack : null,
+                  onPressed: tabData[homeWidget.tabController.index]
+                          .tabHistoryBottom
+                          .isNotEmpty
+                      ? goBack
+                      : null,
                 ),
                 IconButton(
                   color: Color(0xFFE8E8E8),
                   icon: Icon(Icons.arrow_forward),
-                  onPressed:
-                      currentHistoryIndex < maxHistoryIndex ? goForward : null,
+                  onPressed: tabData[homeWidget.tabController.index]
+                          .tabHistoryTop
+                          .isNotEmpty
+                      ? goForward
+                      : null,
                 )
               ],
               centerTitle: true,

@@ -88,12 +88,6 @@ class _ReloadButtonState extends State<ReloadButton>
       onPressed: () {
         if (widget.currentUrl != null) {
           widget.searchFunction(widget.currentUrl!);
-        } else {
-          if (widget.isLoading) {
-            _stopRotation();
-          } else {
-            _startRotation();
-          }
         }
       },
     );
