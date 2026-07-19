@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseGopherUrl, parseMenu, selectorRequest, toGopherUrl } from "../site/protocol.mjs";
+import {
+  decodeTextResponse,
+  MAX_REQUEST_BYTES,
+  parseGopherUrl,
+  parseMenu,
+  selectorRequest,
+  toGopherUrl,
+} from "../site/protocol.mjs";
 
 test("parses a default-port Gopher URL", () => {
   assert.deepEqual(parseGopherUrl("gopher://example.org/1/archive"), {
@@ -8,6 +15,7 @@ test("parses a default-port Gopher URL", () => {
     port: 70,
     type: "1",
     selector: "/archive",
+    query: null,
   });
 });
 
@@ -18,6 +26,7 @@ test("round-trips an item destination", () => {
     port: 7070,
     type: "0",
     selector: "/read me",
+    query: null,
   });
 });
 
@@ -30,7 +39,37 @@ test("round-trips delimiter characters and IPv6 hosts without truncating selecto
     port: 7070,
     type: "0",
     selector: "read?part#one",
+    query: null,
   });
+});
+
+test("preserves selector dot-segments instead of applying HTTP path normalization", () => {
+  assert.deepEqual(parseGopherUrl("gopher://example.org/1/a/../b"), {
+    host: "example.org",
+    port: 70,
+    type: "1",
+    selector: "/a/../b",
+    query: null,
+  });
+});
+
+test("parses and serializes RFC 4266 search URLs", () => {
+  const address = toGopherUrl({
+    host: "search.example",
+    type: "7",
+    selector: "/lookup",
+    query: "rust gopher",
+  });
+  assert.equal(address, "gopher://search.example/7/lookup%09rust%20gopher");
+  assert.deepEqual(parseGopherUrl(address), {
+    host: "search.example",
+    port: 70,
+    type: "7",
+    selector: "/lookup",
+    query: "rust gopher",
+  });
+  assert.equal(selectorRequest("/lookup", "rust gopher"), "/lookup\trust gopher\r\n");
+  assert.equal(selectorRequest("/lookup", ""), "/lookup\t\r\n");
 });
 
 test("parses valid entries and exposes malformed lines", () => {
@@ -57,4 +96,25 @@ test("rejects ambiguous or unsafe URL components", () => {
     /invalid URL characters/,
   );
   assert.throws(() => toGopherUrl({ host: "example.org", port: 0 }), /between 1 and 65535/);
+  assert.throws(() => parseGopherUrl("gopher://example.org/7/find%09term%09+"), /Gopher\+/);
+  assert.throws(() => parseGopherUrl(" gopher://example.org/1/"), /whitespace/);
+  assert.throws(() => parseGopherUrl("gopher://example.org/é/path"), /visible ASCII/);
+  assert.throws(() => parseGopherUrl("gopher://example.org:/1/"), /port must be a number/);
+});
+
+test("bounds encoded requests and parsed menu growth", () => {
+  assert.throws(() => selectorRequest("é".repeat(MAX_REQUEST_BYTES)), /encoded request/);
+  assert.throws(
+    () => parseMenu("0One\t/1\texample.org\t70\n0Two\t/2\texample.org\t70\n", { maxEntries: 1 }),
+    /entry limit/,
+  );
+});
+
+test("marks destinations with unsafe authorities as invalid", () => {
+  const [entry] = parseMenu("0Trap\t/\tuser@redirect.invalid\t70\r\n.\r\n");
+  assert.equal(entry.valid, false);
+});
+
+test("removes the RFC 1436 text terminator", () => {
+  assert.equal(decodeTextResponse("First\r\nSecond\r\n.\r\nignored"), "First\nSecond");
 });
