@@ -50,6 +50,7 @@ function render() {
     copy.append(title, meta);
     const arrow = document.createElement("i");
     arrow.textContent = "↗";
+    arrow.setAttribute("aria-hidden", "true");
     button.append(icon, copy, arrow);
     button.addEventListener("click", () => inspect(entry, button));
     fragment.append(button);
