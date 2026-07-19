@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="DIG is an inspectable Gopher protocol client and browser-based protocol explorer." />
+    <meta name="theme-color" content="#101313" />
+    <meta property="og:title" content="DIG — Follow the protocol, line by line" />
+    <meta property="og:description" content="Explore a Gopher menu and see the protocol behind every item." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://ejupi-djenis30.github.io/Dig/" />
+    <meta property="og:image" content="https://ejupi-djenis30.github.io/Dig/assets/demo-poster.svg" />
+    <link rel="canonical" href="https://ejupi-djenis30.github.io/Dig/" />
+    <link rel="icon" href="assets/dig-mark.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="styles.css" />
+    <title>DIG — Gopher Protocol Explorer</title>
+  </head>
+  <body>
+    <header class="header">
+      <a class="brand" href="#top" aria-label="DIG home">
+        <img src="assets/dig-mark.svg" alt="" width="42" height="42" />
+        <span>DIG</span>
+      </a>
+      <nav aria-label="Primary navigation">
+        <a href="#explorer">Explorer</a>
+        <a href="#protocol">Protocol</a>
+        <a href="#history">History</a>
+      </nav>
+      <a class="github-link" href="https://github.com/ejupi-djenis30/Dig">Source ↗</a>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="kicker">GOPHER PROTOCOL / PORT 70</p>
+          <h1>Follow the protocol,<br /><em>line by line.</em></h1>
+          <p class="lead">
+            DIG makes a quiet corner of the internet readable again. Open a menu, inspect its raw
+            fields and understand exactly where each selector leads.
+          </p>
+          <div class="hero-actions">
+            <a class="primary-action" href="#explorer">Open the explorer <span>↓</span></a>
+            <a href="https://github.com/ejupi-djenis30/Dig#run-the-cli">Run the real client ↗</a>
+          </div>
+        </div>
+        <div class="packet-art" aria-hidden="true">
+          <div class="coordinate">70 / TCP</div>
+          <div class="packet packet-a"><b>1</b><span>directory</span></div>
+          <div class="packet packet-b"><b>0</b><span>text</span></div>
+          <div class="packet packet-c"><b>7</b><span>search</span></div>
+          <div class="route route-a"></div>
+          <div class="route route-b"></div>
+          <p>selector → host → port</p>
+        </div>
+      </section>
+
+      <section class="demo-reel section" aria-labelledby="demo-reel-title">
+        <div>
+          <p class="kicker">00 / TEN-SECOND WALKTHROUGH</p>
+          <h2 id="demo-reel-title">See the route<br />before you follow it.</h2>
+        </div>
+        <video controls muted loop playsinline preload="metadata" poster="assets/demo-poster.svg">
+          <source src="assets/demo.mp4" type="video/mp4" />
+          Your browser cannot play the DIG demonstration video.
+        </video>
+      </section>
+
+      <section class="explorer section" id="explorer" aria-labelledby="explorer-title">
+        <div class="section-intro">
+          <p class="kicker">01 / INTERACTIVE RECORDING</p>
+          <h2 id="explorer-title">A menu you can<br />take apart.</h2>
+          <p>
+            Browsers cannot open raw TCP sockets, so this page replays a bundled Gopher session.
+            It is a faithful parser demonstration, not a live network proxy.
+          </p>
+        </div>
+
+        <div class="browser-shell">
+          <div class="browser-bar">
+            <span class="status-dot"></span>
+            <form data-address-form>
+              <label class="sr-only" for="address">Gopher address</label>
+              <input id="address" value="gopher://dig.local/1/" spellcheck="false" data-address />
+              <button type="submit">Trace</button>
+            </form>
+            <span class="mode">Fixture mode</span>
+          </div>
+          <div class="browser-grid">
+            <div class="menu-pane">
+              <div class="pane-heading">
+                <p>SELECT A MENU LINE</p>
+                <span data-count>0 items</span>
+              </div>
+              <div class="menu-list" data-menu aria-live="polite"></div>
+            </div>
+            <aside class="trace-pane" aria-labelledby="trace-title">
+              <p class="trace-kicker" id="trace-title">PROTOCOL TRACE</p>
+              <div class="trace-type" data-type>DIR</div>
+              <h3 data-label>Choose an item</h3>
+              <dl>
+                <div><dt>Type</dt><dd data-type-name>Directory</dd></div>
+                <div><dt>Selector</dt><dd data-selector>/</dd></div>
+                <div><dt>Host</dt><dd data-host>dig.local</dd></div>
+                <div><dt>Port</dt><dd data-port>70</dd></div>
+              </dl>
+              <div class="raw-line">
+                <span>RAW MENU LINE</span>
+                <code data-raw>waiting for selection</code>
+              </div>
+            </aside>
+          </div>
+        </div>
+        <p class="fixture-note"><span>●</span> No remote request is made. The exact fixture is committed with the source.</p>
+      </section>
+
+      <section class="protocol section" id="protocol" aria-labelledby="protocol-title">
+        <div class="section-intro compact">
+          <p class="kicker">02 / THE FORMAT</p>
+          <h2 id="protocol-title">One line.<br />Five decisions.</h2>
+        </div>
+        <div class="anatomy" aria-label="Anatomy of a Gopher menu line">
+          <div><span>1</span><b>TYPE</b><p>What the item contains.</p></div>
+          <div><span>Archive</span><b>LABEL</b><p>What a person sees.</p></div>
+          <div><span>/archive</span><b>SELECTOR</b><p>What the client requests.</p></div>
+          <div><span>dig.local</span><b>HOST</b><p>Where the request goes.</p></div>
+          <div><span>70</span><b>PORT</b><p>Where the socket opens.</p></div>
+        </div>
+      </section>
+
+      <section class="history section" id="history" aria-labelledby="history-title">
+        <div>
+          <p class="kicker">03 / REBUILT, NOT RESKINNED</p>
+          <h2 id="history-title">The interface finally meets the protocol.</h2>
+        </div>
+        <div class="history-copy">
+          <p>
+            The original Flutter prototype drew a browser shell but never opened a Gopher
+            connection. This edition replaces generated project debris with a bounded Node.js
+            client, shared parser, tests and this transparent web demonstration.
+          </p>
+          <p>Original prototype: Djenis Ejupi and NobodyToListen. Git history preserves both contributors.</p>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <img src="assets/dig-lockup.svg" alt="DIG — Gopher Protocol Explorer" width="190" height="55" />
+      <p>A small client for a small protocol.</p>
+      <a href="https://github.com/ejupi-djenis30">Djenis Ejupi ↗</a>
+    </footer>
+    <script type="module" src="app.mjs"></script>
+  </body>
+</html>

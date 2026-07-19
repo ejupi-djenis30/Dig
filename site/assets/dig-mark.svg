@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">DIG mark</title>
+  <rect width="64" height="64" rx="16" fill="#d8ff3e"/>
+  <path d="M17 15h14c12 0 20 6 20 17s-8 17-20 17H17V15Zm12 9v16h3c6 0 9-2.5 9-8s-3-8-9-8h-3Z" fill="#101313"/>
+  <circle cx="51" cy="15" r="4" fill="#ff6038"/>
+</svg>
