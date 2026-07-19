@@ -1,0 +1,19 @@
+{
+  "name": "DIG — Gopher Protocol Explorer",
+  "short_name": "DIG",
+  "description": "Inspect a recorded Gopher menu and learn how selectors, hosts, ports, and item types fit together.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#eef0e8",
+  "theme_color": "#101313",
+  "icons": [
+    {
+      "src": "assets/dig-mark.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

@@ -37,7 +37,77 @@ test("closes connections that stop responding", async (context) => {
   const { port } = server.address();
 
   await assert.rejects(
-    fetchGopher(`gopher://127.0.0.1:${port}/0/wait`, { timeoutMs: 50 }),
-    /within 50 ms/,
+    fetchGopher(`gopher://127.0.0.1:${port}/0/wait`, { timeoutMs: 500, idleTimeoutMs: 50 }),
+    /idle for more than 50 ms/,
+  );
+});
+
+test("enforces a total deadline even when a server drips data", async (context) => {
+  const server = net.createServer((socket) => {
+    socket.on("error", () => {});
+    const interval = setInterval(() => {
+      if (!socket.destroyed) socket.write("x");
+    }, 15);
+    socket.on("close", () => clearInterval(interval));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => server.close());
+  const { port } = server.address();
+
+  await assert.rejects(
+    fetchGopher(`gopher://127.0.0.1:${port}/0/drip`, { timeoutMs: 70, idleTimeoutMs: 50 }),
+    /total deadline/,
+  );
+});
+
+test("sends a search query parsed from the Gopher URL", async (context) => {
+  const server = net.createServer((socket) => {
+    socket.once("data", (request) => {
+      assert.equal(request.toString(), "/find\tprotocol safety\r\n");
+      socket.end("0Result\t/result\t127.0.0.1\t70\r\n.\r\n");
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => server.close());
+  const { port } = server.address();
+
+  await fetchGopher(`gopher://127.0.0.1:${port}/7/find%09protocol%20safety`, {
+    timeoutMs: 500,
+  });
+});
+
+test("can return binary responses without UTF-8 decoding", async (context) => {
+  const expected = Buffer.from([0xff, 0x00, 0x7f]);
+  const server = net.createServer((socket) => socket.end(expected));
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => server.close());
+  const { port } = server.address();
+
+  const response = await fetchGopher(`gopher://127.0.0.1:${port}/9/blob`, {
+    encoding: null,
+    timeoutMs: 500,
+  });
+  assert.deepEqual(response, expected);
+});
+
+test("supports AbortSignal cancellation", async (context) => {
+  const server = net.createServer(() => {});
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => server.close());
+  const { port } = server.address();
+  const controller = new AbortController();
+  const request = fetchGopher(`gopher://127.0.0.1:${port}/0/wait`, {
+    signal: controller.signal,
+    timeoutMs: 500,
+  });
+  controller.abort();
+
+  await assert.rejects(request, { name: "AbortError" });
+});
+
+test("validates AbortSignal-like options before opening a socket", () => {
+  assert.throws(
+    () => fetchGopher("gopher://127.0.0.1/0/test", { signal: {} }),
+    /AbortSignal/,
   );
 });

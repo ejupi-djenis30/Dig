@@ -1,0 +1,82 @@
+name: Bug report
+description: Report a reproducible problem in the CLI, protocol code, or static explorer.
+title: "[Bug] "
+labels: []
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to isolate the problem. Do not post private hosts, IPs,
+        selectors, queries, credentials, or response data. Redact logs and screenshots first.
+        Report vulnerabilities through the [security policy](https://github.com/ejupi-djenis30/Dig/security/policy).
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - CLI transport or output
+        - URL, menu, or text parser
+        - Static explorer
+        - Offline or install behavior
+        - Documentation or automation
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Paste the release number or commit SHA you tested.
+      placeholder: "2.1.0 or 9286c23"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Include the OS, Node.js version, terminal or browser, and browser version when relevant.
+      placeholder: "Windows 11, Node.js 22, PowerShell 7"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Give the smallest safe sequence that triggers the problem. Use public or invented target data.
+      placeholder: |
+        1. Run ...
+        2. Enter ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+      placeholder: Tell us what should have happened.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      placeholder: Tell us what happened instead, including the exact safe error text.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized evidence
+      description: Optional logs, packet samples, or screenshots. Remove private targets and response content.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Final checks
+      options:
+        - label: I searched the open issues for the same problem.
+          required: true
+        - label: I removed private hosts, IPs, selectors, queries, credentials, and response data.
+          required: true
+        - label: This is not a vulnerability report.
+          required: true
