@@ -3,13 +3,34 @@ import { join } from "node:path";
 
 const root = new URL("../site/", import.meta.url);
 const html = await readFile(new URL("index.html", root), "utf8");
+const manifest = JSON.parse(await readFile(new URL("manifest.webmanifest", root), "utf8"));
 const expectedCsp = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; media-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'";
 const socialPreviewUrl = "https://ejupi-djenis30.github.io/Dig/assets/social-preview.png";
-for (const fragment of ["styles.css", "app.mjs", "protocol.mjs", "manifest.webmanifest", "sw.js", "assets/dig-mark.svg", "assets/demo.mp4", "assets/social-preview.png", "fixtures/root.txt"]) {
+for (const fragment of ["styles.css", "app.mjs", "protocol.mjs", "manifest.webmanifest", "sw.js", "assets/dig-mark.svg", "assets/dig-mark-192.png", "assets/dig-mark-512.png", "assets/demo.mp4", "assets/social-preview.png", "fixtures/root.txt"]) {
   await stat(new URL(fragment, root));
 }
-for (const required of ['lang="en"', "<title>", "<main", "aria-label", "Fixture mode", 'rel="manifest"', "readonly", '<meta name="referrer" content="no-referrer" />', 'http-equiv="Content-Security-Policy"', `content="${expectedCsp}"`, `property="og:image" content="${socialPreviewUrl}"`, 'property="og:image:width" content="1200"', 'property="og:image:height" content="675"', "property=\"og:image:alt\"", 'name="twitter:card" content="summary_large_image"', `name="twitter:image" content="${socialPreviewUrl}"`, 'name="twitter:image:alt"']) {
+for (const required of ['lang="en"', "<title>", "<main", "aria-label", "Fixture mode", 'rel="manifest"', 'rel="apple-touch-icon" href="assets/dig-mark-192.png"', "readonly", '<meta name="referrer" content="no-referrer" />', 'http-equiv="Content-Security-Policy"', `content="${expectedCsp}"`, `property="og:image" content="${socialPreviewUrl}"`, 'property="og:image:width" content="1200"', 'property="og:image:height" content="675"', "property=\"og:image:alt\"", 'name="twitter:card" content="summary_large_image"', `name="twitter:image" content="${socialPreviewUrl}"`, 'name="twitter:image:alt"']) {
   if (!html.includes(required)) throw new Error(`index.html is missing ${required}`);
+}
+const requiredRasterIcons = new Map([
+  ["192x192", "assets/dig-mark-192.png"],
+  ["512x512", "assets/dig-mark-512.png"],
+]);
+for (const [sizes, src] of requiredRasterIcons) {
+  const icon = manifest.icons?.find((candidate) => candidate.src === src);
+  if (!icon || icon.sizes !== sizes || icon.type !== "image/png") {
+    throw new Error(`Manifest is missing the ${sizes} PNG install icon.`);
+  }
+
+  const iconBytes = await readFile(new URL(src, root));
+  const expectedSize = Number.parseInt(sizes, 10);
+  if (
+    iconBytes.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a" ||
+    iconBytes.readUInt32BE(16) !== expectedSize ||
+    iconBytes.readUInt32BE(20) !== expectedSize
+  ) {
+    throw new Error(`${src} must be a ${sizes} PNG image.`);
+  }
 }
 const socialPreview = await readFile(new URL("assets/social-preview.png", root));
 if (socialPreview.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a") {
