@@ -1,0 +1,57 @@
+name: Feature request
+description: Propose a focused improvement that fits DIG's protocol-client scope.
+title: "[Feature] "
+labels: []
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Start with the problem, not a list of technologies. Do not include private server details
+        or logs. Security reports belong in the [security policy](https://github.com/ejupi-djenis30/Dig/security/policy).
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What protocol, CLI, learning, accessibility, or offline task is hard today?
+      placeholder: Describe one concrete use case.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Explain the behavior a user should see. Include an RFC reference when relevant.
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Main area
+      options:
+        - CLI transport or output
+        - Protocol parsing
+        - Static explorer
+        - Accessibility or offline behavior
+        - Documentation or testing
+    validations:
+      required: true
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Safety and scope
+      description: Note network, resource-limit, terminal, privacy, or compatibility effects.
+      placeholder: Explain what remains bounded and what untrusted input is introduced.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Final checks
+      options:
+        - label: I searched existing issues and proposals.
+          required: true
+        - label: This proposal does not turn the hosted demo into an open Gopher proxy.
+          required: true
+        - label: I did not include private hosts, selectors, queries, or response data.
+          required: true

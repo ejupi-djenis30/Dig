@@ -3,16 +3,31 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; media-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
     <meta name="description" content="DIG is an inspectable Gopher protocol client and browser-based protocol explorer." />
     <meta name="theme-color" content="#101313" />
     <meta property="og:title" content="DIG — Follow the protocol, line by line" />
     <meta property="og:description" content="Explore a Gopher menu and see the protocol behind every item." />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://ejupi-djenis30.github.io/Dig/" />
-    <meta property="og:image" content="https://ejupi-djenis30.github.io/Dig/assets/demo-poster.svg" />
+    <meta property="og:image" content="https://ejupi-djenis30.github.io/Dig/assets/social-preview.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="675" />
+    <meta property="og:image:alt" content="DIG protocol explorer showing a Gopher menu beside its decoded protocol trace." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="DIG — Follow the protocol, line by line" />
+    <meta name="twitter:description" content="Explore a Gopher menu and see the protocol behind every item." />
+    <meta name="twitter:image" content="https://ejupi-djenis30.github.io/Dig/assets/social-preview.png" />
+    <meta name="twitter:image:alt" content="DIG protocol explorer showing a Gopher menu beside its decoded protocol trace." />
     <link rel="canonical" href="https://ejupi-djenis30.github.io/Dig/" />
     <link rel="icon" href="assets/dig-mark.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="stylesheet" href="styles.css?v=2.1.0" />
     <title>DIG — Gopher Protocol Explorer</title>
   </head>
   <body>
@@ -80,8 +95,8 @@
             <span class="status-dot"></span>
             <form data-address-form>
               <label class="sr-only" for="address">Gopher address</label>
-              <input id="address" type="url" value="gopher://dig.local/1/" autocomplete="off" spellcheck="false" required data-address />
-              <button type="submit">Trace</button>
+              <input id="address" type="url" value="gopher://dig.local/1/" autocomplete="off" spellcheck="false" readonly aria-readonly="true" data-address />
+              <button type="submit">Replay</button>
             </form>
             <span class="mode">Fixture mode</span>
           </div>
@@ -107,10 +122,11 @@
                 <span>RAW MENU LINE</span>
                 <code data-raw>waiting for selection</code>
               </div>
+              <p class="sr-only" role="status" aria-live="polite" data-trace-announcement></p>
             </aside>
           </div>
         </div>
-        <p class="fixture-note"><span aria-hidden="true">●</span> No remote request is made. The exact fixture is committed with the source.</p>
+        <p class="fixture-note" role="status" data-fixture-status><span aria-hidden="true">●</span> No remote Gopher request is made. The exact fixture is committed with the source.</p>
       </section>
 
       <section class="protocol section" id="protocol" aria-labelledby="protocol-title">
@@ -148,6 +164,6 @@
       <p>A small client for a small protocol.</p>
       <a href="https://github.com/ejupi-djenis30">Djenis Ejupi <span aria-hidden="true">↗</span></a>
     </footer>
-    <script type="module" src="app.mjs"></script>
+    <script type="module" src="app.mjs?v=2.1.0"></script>
   </body>
 </html>

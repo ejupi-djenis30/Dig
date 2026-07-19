@@ -1,14 +1,15 @@
 {
   "name": "dig-gopher-explorer",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
+  "license": "UNLICENSED",
   "type": "module",
   "description": "A small, inspectable Gopher protocol client and browser-based protocol explorer.",
   "bin": {
     "dig-gopher": "./bin/dig.mjs"
   },
   "scripts": {
-    "start": "node ./bin/dig.mjs",
+    "start": "node ./bin/dig.mjs --help",
     "test": "node --test",
     "check:site": "node ./scripts/validate-site.mjs",
     "check": "npm test && npm run check:site"
