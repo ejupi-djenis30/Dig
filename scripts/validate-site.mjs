@@ -10,4 +10,5 @@ for (const required of ['lang="en"', "<title>", "<main", "aria-label", "Fixture 
   if (!html.includes(required)) throw new Error(`index.html is missing ${required}`);
 }
 if (html.includes("http://")) throw new Error("Public site contains an insecure HTTP URL.");
+if (/(?:src|href)="\//.test(html)) throw new Error("Assets must remain relative for project Pages.");
 console.log("DIG site validation passed.");

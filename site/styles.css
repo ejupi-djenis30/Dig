@@ -2,9 +2,9 @@
   --ink: #101313;
   --panel: #1b2020;
   --paper: #eef0e8;
-  --muted: #69716d;
+  --muted: #666e6a;
   --acid: #d8ff3e;
-  --orange: #ff6038;
+  --orange: #bd4525;
   --line: rgba(16, 19, 19, 0.16);
   font-family: Inter, "Avenir Next", "Segoe UI", Arial, sans-serif;
   color: var(--ink);
@@ -25,7 +25,7 @@ body {
 ::selection { color: var(--ink); background: var(--acid); }
 a { color: inherit; text-underline-offset: .25em; }
 button, input { font: inherit; }
-:focus-visible { outline: 3px solid var(--orange); outline-offset: 3px; }
+:focus-visible { outline: 3px solid var(--paper); outline-offset: 3px; box-shadow: 0 0 0 6px var(--ink); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 
 .header {
@@ -102,7 +102,7 @@ h1 em { color: var(--orange); font-family: Georgia, serif; font-weight: 400; }
 .menu-item > span:first-child { font-family: monospace; font-size: .7rem; font-weight: 900; letter-spacing: .08em; }
 .menu-item > span:nth-child(2) { display: flex; min-width: 0; flex-direction: column; }
 .menu-item strong { overflow: hidden; font-size: .98rem; text-overflow: ellipsis; white-space: nowrap; }
-.menu-item small { color: rgba(238,240,232,.45); font-family: monospace; font-size: .67rem; }
+.menu-item small { color: rgba(238,240,232,.5); font-family: monospace; font-size: .67rem; }
 .menu-item:hover small, .menu-item[aria-current="true"] small { color: rgba(16,19,19,.6); }
 .menu-item i { font-style: normal; }
 .trace-pane { padding: 2rem; background: var(--panel); }
@@ -111,7 +111,7 @@ h1 em { color: var(--orange); font-family: Georgia, serif; font-weight: 400; }
 .trace-pane h3 { font-size: clamp(2rem,3vw,3rem); }
 .trace-pane dl { margin: 2rem 0; }
 .trace-pane dl div { display: grid; grid-template-columns: 5rem minmax(0,1fr); gap: 1rem; padding: .75rem 0; border-bottom: 1px solid rgba(238,240,232,.1); }
-.trace-pane dt { color: rgba(238,240,232,.45); font-size: .68rem; text-transform: uppercase; }
+.trace-pane dt { color: rgba(238,240,232,.5); font-size: .68rem; text-transform: uppercase; }
 .trace-pane dd { min-width: 0; margin: 0; overflow-wrap: anywhere; font-family: monospace; font-size: .75rem; }
 .raw-line { margin-top: 2rem; padding: 1rem; border: 1px solid rgba(216,255,62,.3); background: rgba(216,255,62,.04); }
 .raw-line span { display: block; margin-bottom: .55rem; color: var(--acid); font-family: monospace; font-size: .62rem; letter-spacing: .1em; }

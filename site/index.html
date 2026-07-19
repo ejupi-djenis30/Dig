@@ -26,7 +26,7 @@
         <a href="#protocol">Protocol</a>
         <a href="#history">History</a>
       </nav>
-      <a class="github-link" href="https://github.com/ejupi-djenis30/Dig">Source ↗</a>
+      <a class="github-link" href="https://github.com/ejupi-djenis30/Dig">Source <span aria-hidden="true">↗</span></a>
     </header>
 
     <main id="top">
@@ -39,8 +39,8 @@
             fields and understand exactly where each selector leads.
           </p>
           <div class="hero-actions">
-            <a class="primary-action" href="#explorer">Open the explorer <span>↓</span></a>
-            <a href="https://github.com/ejupi-djenis30/Dig#run-the-cli">Run the real client ↗</a>
+            <a class="primary-action" href="#explorer">Open the explorer <span aria-hidden="true">↓</span></a>
+            <a href="https://github.com/ejupi-djenis30/Dig#run-the-cli">Run the real client <span aria-hidden="true">↗</span></a>
           </div>
         </div>
         <div class="packet-art" aria-hidden="true">
@@ -59,7 +59,7 @@
           <p class="kicker">00 / TEN-SECOND WALKTHROUGH</p>
           <h2 id="demo-reel-title">See the route<br />before you follow it.</h2>
         </div>
-        <video controls muted loop playsinline preload="metadata" poster="assets/demo-poster.svg">
+        <video aria-label="DIG interface walkthrough" controls muted loop playsinline preload="metadata" poster="assets/demo-poster.svg">
           <source src="assets/demo.mp4" type="video/mp4" />
           Your browser cannot play the DIG demonstration video.
         </video>
@@ -80,7 +80,7 @@
             <span class="status-dot"></span>
             <form data-address-form>
               <label class="sr-only" for="address">Gopher address</label>
-              <input id="address" value="gopher://dig.local/1/" spellcheck="false" data-address />
+              <input id="address" type="url" value="gopher://dig.local/1/" autocomplete="off" spellcheck="false" required data-address />
               <button type="submit">Trace</button>
             </form>
             <span class="mode">Fixture mode</span>
@@ -110,7 +110,7 @@
             </aside>
           </div>
         </div>
-        <p class="fixture-note"><span>●</span> No remote request is made. The exact fixture is committed with the source.</p>
+        <p class="fixture-note"><span aria-hidden="true">●</span> No remote request is made. The exact fixture is committed with the source.</p>
       </section>
 
       <section class="protocol section" id="protocol" aria-labelledby="protocol-title">
@@ -146,7 +146,7 @@
     <footer>
       <img src="assets/dig-lockup.svg" alt="DIG — Gopher Protocol Explorer" width="190" height="55" />
       <p>A small client for a small protocol.</p>
-      <a href="https://github.com/ejupi-djenis30">Djenis Ejupi ↗</a>
+      <a href="https://github.com/ejupi-djenis30">Djenis Ejupi <span aria-hidden="true">↗</span></a>
     </footer>
     <script type="module" src="app.mjs"></script>
   </body>
