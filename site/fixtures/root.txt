@@ -1,0 +1,9 @@
+iDIG ARCHIVE — a recorded Gopher menu	fake	dig.local	70
+1Field notes	/notes	dig.local	70
+0Why Gopher still matters	/notes/why-gopher.txt	dig.local	70
+1Protocol specimens	/specimens	dig.local	70
+7Search the archive	/search	dig.local	70
+IMap of known servers	/assets/map.png	dig.local	70
+hProject source	URL:https://github.com/ejupi-djenis30/Dig	dig.local	70
+iEnd of recorded menu	fake	dig.local	70
+.

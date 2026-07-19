@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 112" role="img" aria-labelledby="title">
+  <title id="title">DIG — Gopher Protocol Explorer</title>
+  <rect width="112" height="112" rx="27" fill="#d8ff3e"/>
+  <path d="M29 25h24c21 0 34 10 34 31S74 87 53 87H29V25Zm21 17v28h5c10 0 15-4 15-14S65 42 55 42h-5Z" fill="#101313"/>
+  <circle cx="89" cy="25" r="7" fill="#ff6038"/>
+  <text x="142" y="66" font-family="Arial,Helvetica,sans-serif" font-size="56" font-weight="800" fill="#101313">DIG</text>
+  <text x="144" y="91" font-family="monospace" font-size="14" letter-spacing="2" fill="#68706c">GOPHER PROTOCOL EXPLORER</text>
+</svg>
