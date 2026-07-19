@@ -115,6 +115,13 @@ test("marks destinations with unsafe authorities as invalid", () => {
   assert.equal(entry.valid, false);
 });
 
-test("removes the RFC 1436 text terminator", () => {
-  assert.equal(decodeTextResponse("First\r\nSecond\r\n.\r\nignored"), "First\nSecond");
+test("removes RFC 1436 text framing and unstuffs leading dots", () => {
+  assert.equal(
+    decodeTextResponse("First\r\n..foo\r\n...\r\nSecond\r\n.\r\n..ignored"),
+    "First\n.foo\n..\nSecond",
+  );
+});
+
+test("only removes a dot from lines that were dot-stuffed", () => {
+  assert.equal(decodeTextResponse("..foo\n.bar\n..."), ".foo\n.bar\n..");
 });

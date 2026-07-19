@@ -229,9 +229,10 @@ export function selectorRequest(selector, query = null) {
   return request;
 }
 
-/** Remove the RFC 1436 terminator from a text response. */
+/** Decode RFC 1436 text framing and dot-stuffed content lines. */
 export function decodeTextResponse(payload) {
   const lines = String(payload).replaceAll("\r\n", "\n").split("\n");
   const terminator = lines.indexOf(".");
-  return (terminator >= 0 ? lines.slice(0, terminator) : lines).join("\n");
+  const textLines = terminator >= 0 ? lines.slice(0, terminator) : lines;
+  return textLines.map((line) => (line.startsWith("..") ? line.slice(1) : line)).join("\n");
 }
