@@ -44,7 +44,7 @@ button, input { font: inherit; }
 .brand { display: inline-flex; align-items: center; gap: .7rem; width: fit-content; font-weight: 900; letter-spacing: .12em; text-decoration: none; }
 .brand img { display: block; }
 .header nav { display: flex; gap: clamp(1rem, 3vw, 2.5rem); }
-.header nav a, .github-link { font-size: .73rem; font-weight: 850; letter-spacing: .1em; text-decoration: none; text-transform: uppercase; }
+.header nav a, .github-link { display: inline-flex; align-items: center; min-height: 2.75rem; font-size: .73rem; font-weight: 850; letter-spacing: .1em; text-decoration: none; text-transform: uppercase; }
 .github-link { justify-self: end; }
 
 .hero, .section, footer { width: min(1240px, calc(100% - 8vw)); margin-inline: auto; }
@@ -90,7 +90,7 @@ h1 em { color: var(--orange); font-family: Georgia, serif; font-weight: 400; }
 .browser-bar form { display: grid; grid-template-columns: minmax(0,1fr) auto; overflow: hidden; border: 1px solid rgba(238,240,232,.18); border-radius: .65rem; background: var(--panel); }
 .browser-bar input { min-width: 0; padding: .72rem .9rem; border: 0; outline: 0; color: var(--paper); background: transparent; font-family: monospace; }
 .browser-bar form:focus-within { border-color: var(--acid); }
-.browser-bar button { padding: 0 1rem; border: 0; color: var(--ink); background: var(--acid); cursor: pointer; font-size: .7rem; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+.browser-bar button { min-height: 2.75rem; padding: 0 1rem; border: 0; color: var(--ink); background: var(--acid); cursor: pointer; font-size: .7rem; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
 .mode { color: var(--acid); font-family: monospace; font-size: .67rem; letter-spacing: .09em; text-transform: uppercase; }
 .browser-grid { display: grid; grid-template-columns: 1.35fr .65fr; min-height: 39rem; }
 .menu-pane { min-width: 0; border-right: 1px solid rgba(238,240,232,.13); }

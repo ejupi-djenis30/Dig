@@ -12,7 +12,8 @@
     <meta property="og:image" content="https://ejupi-djenis30.github.io/Dig/assets/demo-poster.svg" />
     <link rel="canonical" href="https://ejupi-djenis30.github.io/Dig/" />
     <link rel="icon" href="assets/dig-mark.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="stylesheet" href="styles.css?v=2.1.0" />
     <title>DIG — Gopher Protocol Explorer</title>
   </head>
   <body>
@@ -80,8 +81,8 @@
             <span class="status-dot"></span>
             <form data-address-form>
               <label class="sr-only" for="address">Gopher address</label>
-              <input id="address" type="url" value="gopher://dig.local/1/" autocomplete="off" spellcheck="false" required data-address />
-              <button type="submit">Trace</button>
+              <input id="address" type="url" value="gopher://dig.local/1/" autocomplete="off" spellcheck="false" readonly aria-readonly="true" data-address />
+              <button type="submit">Replay</button>
             </form>
             <span class="mode">Fixture mode</span>
           </div>
@@ -107,10 +108,11 @@
                 <span>RAW MENU LINE</span>
                 <code data-raw>waiting for selection</code>
               </div>
+              <p class="sr-only" role="status" aria-live="polite" data-trace-announcement></p>
             </aside>
           </div>
         </div>
-        <p class="fixture-note"><span aria-hidden="true">●</span> No remote request is made. The exact fixture is committed with the source.</p>
+        <p class="fixture-note" role="status" data-fixture-status><span aria-hidden="true">●</span> No remote Gopher request is made. The exact fixture is committed with the source.</p>
       </section>
 
       <section class="protocol section" id="protocol" aria-labelledby="protocol-title">
@@ -148,6 +150,6 @@
       <p>A small client for a small protocol.</p>
       <a href="https://github.com/ejupi-djenis30">Djenis Ejupi <span aria-hidden="true">↗</span></a>
     </footer>
-    <script type="module" src="app.mjs"></script>
+    <script type="module" src="app.mjs?v=2.1.0"></script>
   </body>
 </html>
