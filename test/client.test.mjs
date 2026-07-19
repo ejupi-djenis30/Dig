@@ -29,3 +29,15 @@ test("stops oversized responses", async (context) => {
     /exceeded/,
   );
 });
+
+test("closes connections that stop responding", async (context) => {
+  const server = net.createServer(() => {});
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => server.close());
+  const { port } = server.address();
+
+  await assert.rejects(
+    fetchGopher(`gopher://127.0.0.1:${port}/0/wait`, { timeoutMs: 50 }),
+    /within 50 ms/,
+  );
+});

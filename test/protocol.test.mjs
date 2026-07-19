@@ -21,8 +21,20 @@ test("round-trips an item destination", () => {
   });
 });
 
+test("round-trips delimiter characters and IPv6 hosts without truncating selectors", () => {
+  const url = toGopherUrl({ host: "::1", port: 7070, type: "0", selector: "read?part#one" });
+
+  assert.equal(url, "gopher://[::1]:7070/0read%3Fpart%23one");
+  assert.deepEqual(parseGopherUrl(url), {
+    host: "::1",
+    port: 7070,
+    type: "0",
+    selector: "read?part#one",
+  });
+});
+
 test("parses valid entries and exposes malformed lines", () => {
-  const result = parseMenu("1Archive\t/archive\texample.org\t70\r\nbroken\r\n.\r\n");
+  const result = parseMenu("1Archive\t/archive\texample.org\t70\r\nbroken\r\n.\r\n3Ignored\t/error\texample.org\t70\r\n");
   assert.equal(result.length, 2);
   assert.equal(result[0].valid, true);
   assert.equal(result[0].label, "Archive");
@@ -33,4 +45,16 @@ test("parses valid entries and exposes malformed lines", () => {
 test("rejects non-Gopher URLs and line breaks", () => {
   assert.throws(() => parseGopherUrl("https://example.org"), /only gopher/);
   assert.throws(() => selectorRequest("/safe\r\nmalicious"), /line breaks/);
+  assert.throws(() => selectorRequest("/safe", "query\twith-an-extra-field"), /control characters/);
+});
+
+test("rejects ambiguous or unsafe URL components", () => {
+  assert.throws(() => parseGopherUrl("gopher://user@example.org/1/"), /credentials/);
+  assert.throws(() => parseGopherUrl("gopher://example.org/1/read?part"), /Encode question marks/);
+  assert.throws(() => parseGopherUrl("gopher://example.org/1/%0a"), /control characters/);
+  assert.throws(
+    () => toGopherUrl({ host: "example.org@redirect.invalid", selector: "/" }),
+    /invalid URL characters/,
+  );
+  assert.throws(() => toGopherUrl({ host: "example.org", port: 0 }), /between 1 and 65535/);
 });
