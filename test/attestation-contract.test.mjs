@@ -46,7 +46,7 @@ test("every artifact attestation is identity-bound and retried before release pu
       repository: "owner/repository",
       signerWorkflow: "owner/repository/.github/workflows/release.yml",
       sourceCommit: COMMIT,
-      sourceRef: "refs/tags/v2.1.2",
+      sourceRef: "refs/tags/v2.1.3",
       run,
       pause: async () => {},
     });
@@ -77,7 +77,7 @@ test("local artifact tampering fails before an attestation lookup", async () => 
           repository: "owner/repository",
           signerWorkflow: "owner/repository/.github/workflows/release.yml",
           sourceCommit: COMMIT,
-          sourceRef: "refs/tags/v2.1.2",
+          sourceRef: "refs/tags/v2.1.3",
           run: (args) => {
             calls.push(args);
             return { status: 0, stdout: "[{}]", stderr: "" };

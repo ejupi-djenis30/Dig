@@ -24,7 +24,7 @@ import {
   verifyPublishedAssets,
 } from "../scripts/publish-release.mjs";
 
-const VERSION = "2.1.2";
+const VERSION = "2.1.3";
 const COMMIT = "a".repeat(40);
 const RELEASE_TOOLING = { "remark-parse": "11.0.0", unified: "11.0.5", yaml: "2.9.0" };
 const repositoryRoot = resolve(fileURLToPath(new URL("../", import.meta.url)));
@@ -569,6 +569,8 @@ class FakeGitHub {
       ambiguousPromotion: false,
       ambiguousUpload: false,
       branchContained: true,
+      conflictingCreatedReleaseId: false,
+      createVisibilityDelay: 0,
       defaultHead: COMMIT,
       duplicateRelease: false,
       failUpload: false,
@@ -601,7 +603,12 @@ class FakeGitHub {
 
   releaseList(endpoint) {
     const page = Number(new URL(`https://api.test/${endpoint}`).searchParams.get("page"));
+    if (this.release && this.options.createVisibilityDelay > 0) {
+      this.options.createVisibilityDelay -= 1;
+      return [];
+    }
     const releases = this.release ? [this.clone(this.release)] : [];
+    if (this.options.conflictingCreatedReleaseId && releases.length === 1) releases[0].id += 1;
     if (this.options.duplicateRelease && this.release) {
       releases.push({ ...this.clone(this.release), id: this.release.id + 1 });
     }
@@ -803,6 +810,58 @@ test("publisher reconciles ambiguous create, upload, and promotion transitions",
     const published = await publish(directory, fake);
     assert.equal(published.immutable, true, option);
     assert.equal(releaseCreations(fake.calls), 1, option);
+  }
+});
+
+test("publisher waits for a newly created draft to become uniquely visible before upload", async () => {
+  const { directory, expected } = await candidateDirectory();
+  const fake = new FakeGitHub(expected, { createVisibilityDelay: 3 });
+  const pauses = [];
+  const published = await publish(directory, fake, { pause: async (milliseconds) => pauses.push(milliseconds) });
+
+  assert.equal(published.immutable, true);
+  assert.deepEqual(pauses, [1_000, 2_000, 4_000]);
+  const firstUpload = fake.calls.findIndex((args) => args[0] === "upload");
+  assert.ok(firstUpload > 0);
+  const confirmationLists = fake.calls
+    .slice(0, firstUpload)
+    .filter((args) => args[0] === "api" && /^repos\/owner\/repository\/releases\?/.test(args[1]));
+  assert.equal(confirmationLists.length, 5, "initial lookup plus four post-create confirmations");
+});
+
+test("publisher reconciles an ambiguous create after delayed visibility without creating twice", async () => {
+  const { directory, expected } = await candidateDirectory();
+  const fake = new FakeGitHub(expected, { ambiguousCreate: true, createVisibilityDelay: 2 });
+  const pauses = [];
+  const published = await publish(directory, fake, { pause: async (milliseconds) => pauses.push(milliseconds) });
+
+  assert.equal(published.immutable, true);
+  assert.deepEqual(pauses, [1_000, 2_000]);
+  assert.equal(releaseCreations(fake.calls), 1);
+});
+
+test("publisher fails closed on duplicate, conflicting, or invisible post-create state", async () => {
+  const { directory, expected } = await candidateDirectory();
+  for (const [options, pattern, expectedPauses] of [
+    [{ duplicateRelease: true }, /multiple releases/, []],
+    [{ conflictingCreatedReleaseId: true }, /conflicting release ID/, []],
+    [
+      { createVisibilityDelay: 20 },
+      /after 10 attempts/,
+      [1_000, 2_000, 4_000, 8_000, 10_000, 10_000, 10_000, 10_000, 10_000],
+    ],
+  ]) {
+    const fake = new FakeGitHub(expected, options);
+    const pauses = [];
+    await assert.rejects(
+      () => publish(directory, fake, { pause: async (milliseconds) => pauses.push(milliseconds) }),
+      pattern,
+    );
+    assert.deepEqual(pauses, expectedPauses);
+    assert.equal(fake.uploadCount, 0);
+    assert.equal(fake.release.draft, true);
+    assert.deepEqual(fake.release.assets, []);
+    assert.equal(fake.calls.filter(isMutation).length, 1, "only the draft creation may mutate state");
   }
 });
 
