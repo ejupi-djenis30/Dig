@@ -1,9 +1,12 @@
 import { readFile, stat } from "node:fs/promises";
-import { join } from "node:path";
 
 const root = new URL("../site/", import.meta.url);
+const repositoryRoot = new URL("../", import.meta.url);
 const html = await readFile(new URL("index.html", root), "utf8");
 const styles = await readFile(new URL("styles.css", root), "utf8");
+const app = await readFile(new URL("app.mjs", root), "utf8");
+const serviceWorker = await readFile(new URL("sw.js", root), "utf8");
+const packageMetadata = JSON.parse(await readFile(new URL("package.json", repositoryRoot), "utf8"));
 const manifest = JSON.parse(await readFile(new URL("manifest.webmanifest", root), "utf8"));
 const expectedCsp = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; media-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'";
 const socialPreviewUrl = "https://ejupi-djenis30.github.io/Dig/assets/social-preview.png";
@@ -23,6 +26,27 @@ if (html.indexOf(skipLink) > html.indexOf('<header class="header">')) {
 }
 for (const required of [".skip-link {", ".skip-link:focus-visible {"]) {
   if (!styles.includes(required)) throw new Error(`styles.css is missing ${required}`);
+}
+const releaseVersion = packageMetadata.version;
+if (!/^\d+\.\d+\.\d+$/.test(releaseVersion)) throw new Error("package.json needs a stable semantic version.");
+for (const asset of ["styles.css", "app.mjs"]) {
+  if (!html.includes(`${asset}?v=${releaseVersion}`)) {
+    throw new Error(`index.html must cache-bust ${asset} with package version ${releaseVersion}.`);
+  }
+}
+if (!app.includes(`./sw.js?v=${releaseVersion}`)) {
+  throw new Error(`app.mjs must register the service worker with package version ${releaseVersion}.`);
+}
+if (!serviceWorker.includes(`\`${'${CACHE_PREFIX}'}v${releaseVersion}\``)) {
+  throw new Error(`sw.js cache name must include package version ${releaseVersion}.`);
+}
+for (const asset of ["styles.css", "app.mjs"]) {
+  if (!serviceWorker.includes(`./${asset}?v=${releaseVersion}`)) {
+    throw new Error(`sw.js must precache ${asset} with package version ${releaseVersion}.`);
+  }
+}
+if (/caches\.match\(request\)\.then/u.test(serviceWorker)) {
+  throw new Error("Static assets must prefer the network so deployed fixes are not hidden by a stale cache.");
 }
 const requiredRasterIcons = new Map([
   ["192x192", "assets/dig-mark-192.png"],

@@ -89,7 +89,7 @@ render();
 
 if ("serviceWorker" in navigator) {
   try {
-    await navigator.serviceWorker.register("./sw.js?v=2.1.0", { scope: "./", updateViaCache: "none" });
+    await navigator.serviceWorker.register("./sw.js?v=2.1.1", { scope: "./", updateViaCache: "none" });
     await navigator.serviceWorker.ready;
     fixtureStatus.textContent += " The explorer is ready for a future offline visit.";
   } catch {

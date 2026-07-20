@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.1.1 — 2026-07-20
+
+- Make the skip link reliably visible and usable for keyboard navigation.
+- Tie the stylesheet, application script and service-worker cache to one release version.
+- Prefer fresh static assets while retaining the last verified offline response as a fallback.
+
 ## 2.1.0 — 2026-07-19
 
 - Preserve Gopher selector dot-segments and support RFC 4266 search URLs.

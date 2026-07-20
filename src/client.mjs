@@ -47,11 +47,10 @@ export function fetchGopher(address, options = {}) {
     const chunks = [];
     let received = 0;
     let settled = false;
+    const deadlineAt = Date.now() + timeoutMs;
+    const deadlineError = () => new Error(`Request exceeded the ${timeoutMs} ms total deadline.`);
     const socket = net.createConnection({ host: target.host, port: target.port });
-    const deadline = setTimeout(
-      () => finish(new Error(`Request exceeded the ${timeoutMs} ms total deadline.`)),
-      timeoutMs,
-    );
+    const deadline = setTimeout(() => finish(deadlineError()), timeoutMs);
     const onAbort = () => finish(abortError());
 
     const finish = (error, value) => {
@@ -78,9 +77,16 @@ export function fetchGopher(address, options = {}) {
       const payload = Buffer.concat(chunks);
       finish(null, encoding === null ? payload : payload.toString(encoding));
     });
-    socket.on("timeout", () =>
-      finish(new Error(`Server was idle for more than ${idleTimeoutMs} ms.`)),
-    );
+    socket.on("timeout", () => {
+      // Under a busy event loop the idle callback can run after the absolute
+      // deadline even when its timer was scheduled first. Report the boundary
+      // that has actually expired instead of misclassifying the request.
+      finish(
+        Date.now() >= deadlineAt
+          ? deadlineError()
+          : new Error(`Server was idle for more than ${idleTimeoutMs} ms.`),
+      );
+    });
     socket.on("error", (error) => finish(error));
   });
 }
