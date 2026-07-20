@@ -13,20 +13,19 @@ const closingQuotePattern = /^\p{Pf}$/u;
 const schemePattern = /^([A-Za-z][A-Za-z\d+.-]*):(.*)$/u;
 const scpReferencePattern = /^([^@\s]+)@([^:\s]+):(.+)$/u;
 const ipvFuturePattern = /^v[\da-f]+\.[A-Za-z\d._~!$&'()*+,;=:-]+$/iu;
-const pathSegmentPattern = /^[\p{L}\p{N}@._+~-]+$/u;
+const pathSegmentPattern = /^(?:[\p{L}\p{M}\p{N}@._~!$&'()*+,;=:+-]|%[\dA-Fa-f]{2})+$/u;
 const proseLabelPattern = /^\p{Lu}[\p{Ll}\p{M}]{1,31}$/u;
 const nodeBuiltinPattern = /^node:[a-z\d][a-z\d._-]*(?:\/[a-z\d][a-z\d._-]*)*$/iu;
-const npmScopedPackagePattern = /^(?:npm:)?@[a-z\d][a-z\d._-]*\/[a-z\d][a-z\d._-]*$/iu;
+const npmScopedPackagePattern = /^(?:npm:)?@[a-z\d][a-z\d._-]*\/[a-z\d][a-z\d._-]*(?:\/[a-z\d][a-z\d._-]*)*$/iu;
 const javascriptTechnologyPattern = /^[a-z][a-z\d-]*\.js$/iu;
 const languageTechnologyPattern = /^(?:c(?:\+\+|#)?|go|java|javascript|kotlin|python|ruby|rust|swift|typescript)$/iu;
 const namedRuntimePattern = /^(?:deno(?:\.land)?|node)$/iu;
 const architecturePattern = /^(?:aarch64|arm64|x64|x86)$/iu;
 const acronymPattern = /^[A-Z][A-Z\d]{1,7}$/u;
 const namespaceSymbolPattern = /^[A-Za-z_][A-Za-z\d_]*(?:::[A-Za-z_][A-Za-z\d_]*)+$/u;
-const qualifiedSymbolPattern = /^[A-Z_$][A-Za-z\d_$]*(?:\.[A-Za-z_$][A-Za-z\d_$]*)+$/u;
-const packageSubpathPattern = /^[a-z\d]+(?:-[a-z\d]+)+\/[a-z\d][a-z\d._-]*$/iu;
+const qualifiedSymbolPattern = /^[A-Za-z_$][A-Za-z\d_$]*(?:\.[A-Za-z_$][A-Za-z\d_$]*)+$/u;
 const protocolVersionPattern = /^[A-Z][A-Z\d]{1,15}\/v?\d+(?:\.\d+)*$/u;
-const mixedCaseTechnologyPattern = /^(?:[A-Z]{2,}[a-z]+|[A-Z][a-z]+[A-Z][A-Za-z\d]*)$/u;
+const mixedCaseTechnologyPattern = /^(?:[A-Z]{2,}[a-z]+\d*|[A-Z][a-z]+[A-Z][A-Za-z\d]*|[a-z][A-Z]{2,}[A-Za-z\d]*)$/u;
 const connectorPattern = /^[\p{P}\p{S}]$/u;
 
 const knownSchemes = new Set([
@@ -54,29 +53,51 @@ const humanSlashPairs = new Map([
   ["and", "or"],
   ["before", "after"],
   ["client", "server"],
+  ["dev", "prod"],
+  ["frontend", "backend"],
   ["input", "output"],
   ["producer", "consumer"],
   ["read", "write"],
   ["request", "response"],
   ["sync", "async"],
   ["source", "target"],
+  ["success", "failure"],
   ["up", "down"],
 ]);
 const lowercaseProseLabels = new Set([
   "add", "added", "change", "changed", "deprecate", "deprecated", "docs",
   "fix", "fixed", "remove", "removed", "security", "update", "updated",
 ]);
+// Dotted identifiers are indistinguishable from case-insensitive DNS names.
+// Only established runtime/framework roots receive the technology interpretation;
+// every other dotted token continues through the fail-closed host classifier.
+const qualifiedSymbolRoots = new Set([
+  "Angular", "Array", "BigInt", "Date", "Error", "JSON", "Map", "Math", "Object",
+  "Promise", "React", "Reflect", "RegExp", "Set", "String", "Symbol", "System", "URL",
+  "Vue", "WeakMap", "WeakSet", "asyncio", "console", "java", "urllib",
+]);
+const exactDottedTechnologies = new Set(["ASP.NET"]);
+const namespaceRoots = new Set(["boost", "std", "tokio"]);
+const packageSubpathRoots = new Set(["lodash", "react", "react-dom"]);
+const namedTechnologies = new Set([
+  "anthropic", "next.js", "openai", "postgresql", "react", "redis",
+]);
 const maximumSegmentationDepth = 32;
+const maximumCompositeTokenLength = 256;
 
-export function normalizeReleaseNoteText(value) {
+function normalizedReleaseNoteText(value, defaultIgnorableReplacement) {
   if (typeof value !== "string") throw new TypeError("Release-note text must be a string.");
   return value
     .normalize("NFKC")
-    .replace(defaultIgnorableCodePointPattern, "")
-    .replace(formatCodePointPattern, "")
+    .replace(defaultIgnorableCodePointPattern, defaultIgnorableReplacement)
+    .replace(formatCodePointPattern, " ")
     .replace(unicodeDotPattern, ".")
     .replace(controlOrWhitespacePattern, " ")
     .trim();
+}
+
+export function normalizeReleaseNoteText(value) {
+  return normalizedReleaseNoteText(value, "");
 }
 
 function wrapperExpectation(character) {
@@ -107,7 +128,8 @@ function isTechnologyAtom(value) {
     || languageTechnologyPattern.test(value)
     || namedRuntimePattern.test(value)
     || architecturePattern.test(value)
-    || acronymPattern.test(value);
+    || acronymPattern.test(value)
+    || namedTechnologies.has(value.toLowerCase());
 }
 
 function isHumanSlashPair(value) {
@@ -116,14 +138,31 @@ function isHumanSlashPair(value) {
   return humanSlashPairs.get(parts[0]) === parts[1] || humanSlashPairs.get(parts[1]) === parts[0];
 }
 
+function isQualifiedTechnologySymbol(value) {
+  if (!qualifiedSymbolPattern.test(value)) return false;
+  const [root] = value.split(".");
+  return qualifiedSymbolRoots.has(root) || exactDottedTechnologies.has(value);
+}
+
+function isNamespaceTechnologySymbol(value) {
+  return namespaceSymbolPattern.test(value) && namespaceRoots.has(value.slice(0, value.indexOf("::")));
+}
+
+function isPackageSubpath(value) {
+  const [root, ...subpath] = value.split("/");
+  return packageSubpathRoots.has(root.toLowerCase())
+    && subpath.length > 0
+    && subpath.every((segment) => /^[a-z\d][a-z\d._-]*$/iu.test(segment));
+}
+
 function isTechnologyExpression(rawValue) {
   const value = rawValue.replace(/[.!?,;]+$/u, "");
   if (
     nodeBuiltinPattern.test(value)
     || npmScopedPackagePattern.test(value)
-    || namespaceSymbolPattern.test(value)
-    || qualifiedSymbolPattern.test(value)
-    || packageSubpathPattern.test(value)
+    || isNamespaceTechnologySymbol(value)
+    || isQualifiedTechnologySymbol(value)
+    || isPackageSubpath(value)
     || protocolVersionPattern.test(value)
     || isTechnologyAtom(value)
   ) return true;
@@ -211,7 +250,9 @@ function isExplicitPathReference(value) {
   const queryBoundary = value.search(/[?#]/u);
   const path = queryBoundary > 0 ? value.slice(0, queryBoundary) : value;
   const segments = path.split(/[\\/]/u);
-  return segments.length > 1 && segments.every((segment) => segment !== "" && pathSegmentPattern.test(segment));
+  return segments.length > 1
+    && segments[0] !== ""
+    && segments.every((segment) => segment === "" || pathSegmentPattern.test(segment));
 }
 
 function isProseLabel(value) {
@@ -240,6 +281,44 @@ function isLocationOrReferenceExpression(value) {
   if (isEmailReference(value) || isScpStyleReference(value)) return true;
   if (isExplicitPathReference(value)) return true;
   return isHostLocation(value);
+}
+
+function isReferenceOnlyComposite(value) {
+  const characters = [...value];
+  if (characters.length > maximumCompositeTokenLength) return true;
+  const memo = new Map();
+
+  function visit(start, end) {
+    if (start >= end) return false;
+    const key = `${start}:${end}`;
+    if (memo.has(key)) return memo.get(key);
+    const segment = characters.slice(start, end).join("");
+    if (!letterOrNumberPattern.test(segment)) return false;
+    if (isLocationOrReferenceExpression(segment)) {
+      memo.set(key, true);
+      return true;
+    }
+
+    memo.set(key, false);
+    for (let index = start + 1; index < end - 1; index += 1) {
+      if (!connectorPattern.test(characters[index])) continue;
+      const boundaries = [
+        [index, index + 1],
+        [index, index],
+        [index + 1, index + 1],
+      ];
+      for (const [leftEnd, rightStart] of boundaries) {
+        if (leftEnd <= start || rightStart >= end) continue;
+        if (visit(start, leftEnd) && visit(rightStart, end)) {
+          memo.set(key, true);
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  return visit(0, characters.length);
 }
 
 function pushSegment(segments, characters) {
@@ -288,12 +367,19 @@ function compositeSegments(value) {
   return segments;
 }
 
+function isAttachedProseReference(value) {
+  const segments = compositeSegments(value);
+  return segments.length > 1
+    && isProseLabel(segments[0])
+    && segments.slice(1).every(isLocationOrReferenceExpression);
+}
+
 function hasSubstantiveSegment(rawValue, depth = 0) {
   if (depth > maximumSegmentationDepth) return false;
   const value = rawValue.trim();
   if (!letterOrNumberPattern.test(value)) return false;
 
-  if (isTechnologyExpression(value) || isGluedLabelProse(value)) return true;
+  if (isTechnologyExpression(value) || isGluedLabelProse(value) || isAttachedProseReference(value)) return true;
 
   // Complete references are classified before separators are considered, so URI
   // query characters and path punctuation cannot be mistaken for prose.
@@ -311,18 +397,23 @@ function hasSubstantiveSegment(rawValue, depth = 0) {
     return whitespaceParts.some((part) => hasSubstantiveSegment(part, depth + 1));
   }
 
+  if ([...value].length <= maximumCompositeTokenLength && isReferenceOnlyComposite(value)) return false;
+
   const segments = compositeSegments(value);
   if (segments.length !== 1 || segments[0] !== value) {
     return segments.some((segment) => hasSubstantiveSegment(segment, depth + 1));
   }
+  if (isReferenceOnlyComposite(value)) return false;
   return true;
 }
 
 export function isLocationOrReferenceToken(rawValue) {
   const normalized = normalizeReleaseNoteText(rawValue);
-  return letterOrNumberPattern.test(normalized) && !hasSubstantiveSegment(normalized);
+  return letterOrNumberPattern.test(normalized) && !hasSubstantiveReleaseNoteText(rawValue);
 }
 
 export function hasSubstantiveReleaseNoteText(value) {
-  return hasSubstantiveSegment(normalizeReleaseNoteText(value));
+  const joined = normalizeReleaseNoteText(value);
+  const separated = normalizedReleaseNoteText(value, " ");
+  return hasSubstantiveSegment(joined) && hasSubstantiveSegment(separated);
 }

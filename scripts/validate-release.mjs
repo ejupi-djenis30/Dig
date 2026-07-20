@@ -20,15 +20,21 @@ const releaseTooling = {
 
 const markdownParser = unified().use(remarkParse);
 
-function visibleMarkdownText(node) {
+function visibleMarkdownText(node, { separateFormatting = false } = {}) {
   if (["text", "inlineCode", "code"].includes(node.type)) return node.value;
-  if (node.type === "break") return " ";
-  if (["html", "image", "imageReference"].includes(node.type)) return "";
-  return Array.isArray(node.children) ? node.children.map(visibleMarkdownText).join("") : "";
+  if (["break", "image", "imageReference"].includes(node.type)) return " ";
+  if (node.type === "html") return separateFormatting ? " " : "";
+  if (!Array.isArray(node.children)) return "";
+  const separator = separateFormatting ? " " : "";
+  return node.children.map((child) => visibleMarkdownText(child, { separateFormatting })).join(separator);
 }
 
 function hasGenuineVisibleText(node) {
-  return hasSubstantiveReleaseNoteText(visibleMarkdownText(node));
+  // Formatting and comments occupy no rendered width. Both their joined and
+  // token-boundary interpretations must remain substantive, preventing markup
+  // from either spelling a hidden reference or gluing two references together.
+  return hasSubstantiveReleaseNoteText(visibleMarkdownText(node))
+    && hasSubstantiveReleaseNoteText(visibleMarkdownText(node, { separateFormatting: true }));
 }
 
 function hasVisibleListItem(node) {

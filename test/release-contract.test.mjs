@@ -291,6 +291,14 @@ test("version validation uses top-level CommonMark H2 sections and real list not
     "127.1\u001Fexample.test",
     "example.test\\\n  127.1",
     "localhost\\\n  localhost",
+    "localhost![x](x.png)localhost",
+    "**localhost**localhost",
+    "localhost<!--c-->localhost",
+    "h<!--c-->ttps://example.test/release",
+    "**Node.js**https://example.test",
+    "`Node.js`https://example.test",
+    "[Node.js](https://docs.test)https://example.test",
+    "Node.js<!--c-->https://example.test",
   ]) {
     assert.throws(
       () => validateVersionTexts({ ...base, changelog: `## ${VERSION} — 2026-07-20\n\n- ${note}` }),
@@ -366,6 +374,8 @@ test("version validation uses top-level CommonMark H2 sections and real list not
     "Node.js\\\n  https://example.test",
     "Promise.resolve\\\n  https://example.test",
     "fixed\\\n  https://example.test",
+    "Node.js![x](x.png)https://example.test",
+    "**Node.js** https://example.test",
     "リリースの安定性を改善",
     "रिलीज़ की स्थिरता में सुधार",
   ]) {

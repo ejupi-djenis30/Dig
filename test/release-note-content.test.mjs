@@ -11,6 +11,12 @@ const nonIgnorableFormatCodePoints = [
   0x13434, 0x13435, 0x13436, 0x13437, 0x13438, 0x13439, 0x1343A, 0x1343B, 0x1343C,
   0x1343D, 0x1343E, 0x1343F,
 ];
+const composableReferences = [
+  "example.test", "localhost", "127.1", "[::1]", "release@localhost",
+  "mailto:release@example.test", "#release", "?q=1", "owner/repo", "/path", "https:",
+  "urn:example:release", "git@internal:owner/repo", "xn--r8jz45g.xn--zckzah",
+  "example.test/path",
+];
 
 const referenceOnlyNotes = [
   ["URL obfuscated with combining grapheme joiner", "h\u034Fttps://example.test/release"],
@@ -40,6 +46,10 @@ const referenceOnlyNotes = [
   ["ambiguous lowercase repository path", "client/project"],
   ["SCP-style Git reference", "git@example.test:owner/repo"],
   ["ASCII bare domain", "example.test/release"],
+  ["capitalized bare domain", "Example.test"],
+  ["uppercase bare domain", "EXAMPLE.TEST"],
+  ["capitalized common domain", "Example.com"],
+  ["uppercase common domain", "WWW.EXAMPLE.COM"],
   ["www domain", "www.example.test/release"],
   ["ideographic-dot IDN", "例え。テスト/リリース"],
   ["fullwidth-dot IDN", "例え．テスト/リリース"],
@@ -114,6 +124,30 @@ const referenceOnlyNotes = [
   ["unclosed wrapper", "{example.test"],
   ["interlinear annotation anchor", "example.test\uFFF9localhost"],
   ["repository path with query", "owner/repository?tab=readme"],
+  ["organization repository path", "my-org/repository"],
+  ["DIG repository path", "ejupi-djenis30/Dig"],
+  ["relative path with encoded space", "owner/repo%20notes"],
+  ["relative path with parameter", "owner/repo;param"],
+  ["relative path with colon", "owner/repo:tag"],
+  ["format character between localhost references", "localhost\uFFF9localhost"],
+  ["format character between IPv4 references", "127.1\uFFF9127.1"],
+  ["default-ignorable between localhost references", "localhost\u034Flocalhost"],
+  ["zero-width space between localhost references", "localhost\u200Blocalhost"],
+  ["default-ignorable between IPv4 references", "127.1\u034F127.1"],
+  ["hyphen between localhost references", "localhost-localhost"],
+  ["email punctuation between references", "example.test@#release"],
+  ["colon between references", "127.1:localhost"],
+  ["scheme and localhost with double colon", "https::localhost"],
+  ["backslash between references", "example.test\\https:"],
+  ["path with trailing slash", "owner/repo/"],
+  ["path with empty segment", "owner//repo"],
+  ["path with slash before fragment", "owner/repo/#release"],
+  ["path with slash before query", "owner/repo/?q=1"],
+  ["Devanagari relative IRI", "मालिक/रिलीज़"],
+  ["Devanagari repository IRI", "उपयोगकर्ता/रिपॉजिटरी"],
+  ["mixed-script relative IRI", "owner/रिलीज़"],
+  ["Thai relative IRI", "ผู้ใช้/ที่เก็บ"],
+  ["Khmer relative IRI", "អ្នកប្រើ/ឃ្លាំង"],
   ...asciiPunctuation.map(
     (separator) => [`ASCII U+${separator.codePointAt(0).toString(16)} between references`, `example.test${separator}localhost`],
   ),
@@ -192,11 +226,37 @@ const substantiveNotes = [
   ["HTTP protocol version", "HTTP/2"],
   ["TLS protocol version", "TLS/1.3"],
   ["OAuth/OIDC technology compound", "OAuth/OIDC"],
+  ["console method", "console.log"],
+  ["Python urllib module", "urllib.parse"],
+  ["Java qualified class", "java.util.List"],
+  ["Python asyncio class", "asyncio.Task"],
+  ["Lodash package subpath", "lodash/fp"],
+  ["React package subpath", "react/jsx-runtime"],
+  ["scoped npm package subpath", "@scope/pkg/subpath"],
+  ["OAuth2/OIDC technology compound", "OAuth2/OIDC"],
+  ["gRPC/HTTP technology compound", "gRPC/HTTP"],
+  ["Next.js/React technology compound", "Next.js/React"],
+  ["PostgreSQL/Redis technology compound", "PostgreSQL/Redis"],
+  ["OpenAI/Anthropic technology compound", "OpenAI/Anthropic"],
+  ["frontend/backend human compound", "frontend/backend"],
+  ["dev/prod human compound", "dev/prod"],
+  ["success/failure human compound", "success/failure"],
 ];
 
 test("reference-only release notes fail closed across URI, host, address, email, and path forms", () => {
   for (const [name, value] of referenceOnlyNotes) {
     assert.equal(hasSubstantiveReleaseNoteText(value), false, `${name}: ${JSON.stringify(value)}`);
+  }
+});
+
+test("punctuation cannot compose two references into apparent prose", () => {
+  for (const left of composableReferences) {
+    for (const right of composableReferences) {
+      for (const separator of asciiPunctuation) {
+        const value = `${left}${separator}${right}`;
+        assert.equal(hasSubstantiveReleaseNoteText(value), false, JSON.stringify(value));
+      }
+    }
   }
 });
 
