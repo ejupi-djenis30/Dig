@@ -23,6 +23,10 @@ test("release workflow keeps actions pinned and publication tag-only", () => {
     /only read-only contents permission/,
   );
   assert.throws(
+    () => validateReleaseWorkflowText(workflow.replace("permissions:\n  contents: read", "permissions:\n  contents: read\n\n  id-token: write")),
+    /only read-only contents permission/,
+  );
+  assert.throws(
     () => validateReleaseWorkflowText(workflow.replace("runs-on: ubuntu-24.04", "runs-on: ubuntu-latest")),
     /pinned Ubuntu runner/,
   );
@@ -48,5 +52,9 @@ test("release workflow keeps OIDC scoped and provenance ahead of publication", (
   assert.throws(
     () => validateReleaseWorkflowText(workflow.replace("sha256sum --check --strict", "sha256sum --check")),
     /checksum-verified/,
+  );
+  assert.throws(
+    () => validateReleaseWorkflowText(workflow.replace("subject-path: release/SHA256SUMS", "subject-path: release/release-metadata.json")),
+    /SHA256SUMS must receive its own attestation/,
   );
 });

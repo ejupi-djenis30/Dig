@@ -61,7 +61,9 @@ export async function verifyReleaseAttestations({
   assert.match(sourceRef, tagRefPattern, "Attestations may be verified only for a stable tag ref.");
 
   const root = resolve(directory);
-  const entries = parseChecksumManifest(await readFile(resolve(root, "SHA256SUMS"), "utf8"));
+  const checksumPath = resolve(root, "SHA256SUMS");
+  const entries = parseChecksumManifest(await readFile(checksumPath, "utf8"));
+  entries.push({ digest: await sha256(checksumPath), name: "SHA256SUMS" });
   for (const entry of entries) {
     const path = resolve(root, entry.name);
     assert.equal(await sha256(path), entry.digest, `Local artifact changed after attestation: ${entry.name}`);
@@ -77,6 +79,8 @@ export async function verifyReleaseAttestations({
       sourceCommit,
       "--source-ref",
       sourceRef,
+      "--predicate-type",
+      "https://slsa.dev/provenance/v1",
       "--cert-oidc-issuer",
       "https://token.actions.githubusercontent.com",
       "--deny-self-hosted-runners",

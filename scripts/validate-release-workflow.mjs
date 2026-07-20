@@ -15,6 +15,23 @@ function jobBlock(workflow, name) {
   return lines.slice(start, end).join("\n");
 }
 
+function topLevelMappingEntries(workflow, name) {
+  const lines = workflow.split(/\r?\n/);
+  const header = `${name}:`;
+  const starts = lines.map((line, index) => line === header ? index : -1).filter((index) => index >= 0);
+  assert.equal(starts.length, 1, `Release workflow must declare exactly one top-level ${name} mapping.`);
+  const entries = [];
+  for (let index = starts[0] + 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line.trim() === "" || line.trimStart().startsWith("#")) continue;
+    if (!line.startsWith(" ")) break;
+    const entry = line.match(/^  ([a-z-]+): (read|write|none)(?:\s+#.*)?$/);
+    assert.ok(entry, `Unsupported ${name} entry: ${line.trim()}`);
+    entries.push(`${entry[1]}: ${entry[2]}`);
+  }
+  return entries;
+}
+
 export function validateReleaseWorkflowText(workflow) {
   assert.doesNotMatch(workflow, /^\s*pull_request_target:/m, "Release workflow must not use pull_request_target.");
   const activeLines = workflow
@@ -34,10 +51,8 @@ export function validateReleaseWorkflowText(workflow) {
 
   const build = jobBlock(workflow, "build");
   const publish = jobBlock(workflow, "publish");
-  const topLevelPermissions = workflow.match(/^permissions:\r?\n((?:  [^\r\n]+\r?\n?)*)/m);
-  assert.ok(topLevelPermissions, "Release workflow must declare top-level permissions.");
   assert.deepEqual(
-    topLevelPermissions[1].split(/\r?\n/).filter(Boolean).map((line) => line.trim()),
+    topLevelMappingEntries(workflow, "permissions"),
     ["contents: read"],
     "Workflow defaults must grant only read-only contents permission.",
   );
@@ -76,6 +91,7 @@ export function validateReleaseWorkflowText(workflow) {
   ], "Publish permissions changed unexpectedly.");
 
   const attestation = publish.indexOf("uses: actions/attest@");
+  const finalAttestation = publish.lastIndexOf("uses: actions/attest@");
   const verification = publish.indexOf("node scripts/verify-attestations.mjs");
   const publication = publish.indexOf("node scripts/publish-release.mjs");
   const ghInstallation = publish.indexOf("name: Install verified GitHub CLI");
@@ -88,8 +104,15 @@ export function validateReleaseWorkflowText(workflow) {
   );
   assert.ok(publish.includes("sha256sum --check --strict"), "GitHub CLI archive must be checksum-verified.");
   assert.ok(publish.includes('>> "${GITHUB_PATH}"'), "Verified GitHub CLI must be placed on the workflow path.");
+  assert.equal(
+    (publish.match(/uses: actions\/attest@/g) ?? []).length,
+    2,
+    "Publish job must attest both the checksum entries and the checksum manifest.",
+  );
+  assert.ok(publish.includes("subject-checksums: release/SHA256SUMS"), "Release assets must be attested from checksums.");
+  assert.ok(publish.includes("subject-path: release/SHA256SUMS"), "SHA256SUMS must receive its own attestation.");
   assert.ok(attestation >= 0, "Publish job must create GitHub attestations.");
-  assert.ok(verification > attestation, "Attestations must be verified after creation.");
+  assert.ok(verification > finalAttestation, "Attestations must be verified after creation.");
   assert.ok(publication > verification, "Release publication must happen after provenance verification.");
   for (const required of [
     "--default-branch \"${{ github.event.repository.default_branch }}\"",

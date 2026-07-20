@@ -10,49 +10,42 @@ const repositoryRoot = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const semanticVersionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const sourceCommitPattern = /^[0-9a-f]{40}$/;
 
-function linesOutsideHtmlComments(markdown) {
-  const lines = [];
-  let line = "";
-  let insideComment = false;
-  for (let index = 0; index < markdown.length; ) {
-    if (insideComment && markdown.startsWith("-->", index)) {
-      insideComment = false;
-      index += 3;
-    } else if (!insideComment && markdown.startsWith("<!--", index)) {
-      insideComment = true;
-      index += 4;
-    } else {
-      const character = markdown[index];
-      if (character === "\n") {
-        lines.push(line.endsWith("\r") ? line.slice(0, -1) : line);
-        line = "";
-      } else if (!insideComment) {
-        line += character;
-      }
-      index += 1;
-    }
-  }
-  lines.push(line.endsWith("\r") ? line.slice(0, -1) : line);
-  return lines;
-}
-
 function releaseHeadings(changelog) {
   const headings = [];
   let fence;
-  for (const line of linesOutsideHtmlComments(changelog)) {
+  let insideComment = false;
+  for (const rawLine of changelog.split(/\r?\n/)) {
     if (fence) {
-      const closingFence = line.match(/^ {0,3}(`+|~+)[ \t]*$/);
+      const closingFence = rawLine.match(/^ {0,3}(`+|~+)[ \t]*$/);
       if (closingFence && closingFence[1][0] === fence.marker && closingFence[1].length >= fence.length) {
         fence = undefined;
       }
       continue;
     }
-    const openingFence = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    if (insideComment) {
+      if (rawLine.includes("-->")) insideComment = false;
+      continue;
+    }
+    const openingFence = rawLine.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
     if (openingFence) {
       const marker = openingFence[1][0];
       if (marker === "~" || !openingFence[2].includes("`")) {
         fence = { marker, length: openingFence[1].length };
         continue;
+      }
+    }
+    let line = "";
+    for (let index = 0; index < rawLine.length; ) {
+      if (rawLine.startsWith("<!--", index)) {
+        const commentEnd = rawLine.indexOf("-->", index + 4);
+        if (commentEnd === -1) {
+          insideComment = true;
+          break;
+        }
+        index = commentEnd + 3;
+      } else {
+        line += rawLine[index];
+        index += 1;
       }
     }
     const heading = line.match(/^## ((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)) — (\d{4}-\d{2}-\d{2})\s*$/);
@@ -76,7 +69,7 @@ function tarText(buffer, offset, length) {
   return buffer.subarray(offset, end === -1 || end > offset + length ? offset + length : end).toString("utf8");
 }
 
-function tarFiles(archive) {
+export function tarFiles(archive) {
   const tar = gunzipSync(archive, { maxOutputLength: 16 * 1024 * 1024 });
   const files = new Map();
   let terminated = false;
@@ -106,12 +99,15 @@ function tarFiles(archive) {
     const contentStart = offset + 512;
     const contentEnd = contentStart + size;
     assert.ok(contentEnd <= tar.length, `Truncated tar entry: ${name}`);
-    if (type === "\0" || type === "0") {
-      assert.ok(!files.has(name), `Duplicate tar entry: ${name}`);
-      files.set(name, tar.subarray(contentStart, contentEnd));
-    }
-    else assert.equal(type, "5", `Unsupported tar entry type for ${name}.`);
-    offset = contentStart + Math.ceil(size / 512) * 512;
+    assert.ok(type === "\0" || type === "0", `Unsupported tar entry type for ${name}.`);
+    assert.ok(!files.has(name), `Duplicate tar entry: ${name}`);
+    files.set(name, tar.subarray(contentStart, contentEnd));
+    const nextOffset = contentStart + Math.ceil(size / 512) * 512;
+    assert.ok(
+      tar.subarray(contentEnd, nextOffset).every((byte) => byte === 0),
+      `Tar entry has non-zero padding: ${name}`,
+    );
+    offset = nextOffset;
   }
   assert.equal(terminated, true, "Tar archive has no valid end marker.");
   return files;

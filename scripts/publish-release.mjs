@@ -140,11 +140,6 @@ function deleteVerifiedDraft({ tag, repository, expected, run }) {
   return deleted.status === 0 ? undefined : commandError(deleteArguments, deleted);
 }
 
-function requireImmutableReleases({ repository, run }) {
-  const settings = getJson({ endpoint: `repos/${repository}/immutable-releases`, run });
-  assert.equal(settings.enabled, true, "Repository immutable releases must be enabled before publication.");
-}
-
 function requireCurrentDefaultBranch({ repository, defaultBranch, sourceCommit, run }) {
   const commit = getJson({
     endpoint: `repos/${repository}/commits/${encodeURIComponent(defaultBranch)}`,
@@ -220,7 +215,6 @@ export async function publishReleaseCandidate({
   assert.match(defaultBranch, branchPattern, "Default branch contains unsupported characters.");
   assert.match(sourceCommit, sourceCommitPattern, "Source commit must be a lowercase 40-character SHA.");
   const expected = await localAssetManifest(directory);
-  requireImmutableReleases({ repository, run });
   requireSourceBinding({ repository, defaultBranch, tag, sourceCommit, run });
 
   const existing = viewRelease({ tag, repository, fields: ["tagName"], run });
@@ -248,7 +242,6 @@ export async function publishReleaseCandidate({
     if (created.status !== 0) throw commandError(createArguments, created);
 
     const releaseId = await waitForVerifiedDraft({ tag, repository, expected, run, pause });
-    requireImmutableReleases({ repository, run });
     requireSourceBinding({ repository, defaultBranch, tag, sourceCommit, run });
     const promotionArguments = [
       "release",

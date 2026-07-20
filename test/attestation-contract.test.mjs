@@ -50,11 +50,13 @@ test("every artifact attestation is identity-bound and retried before release pu
       run,
       pause: async () => {},
     });
-    assert.equal(calls.length, 3);
+    assert.equal(calls.length, 4);
+    assert.ok(calls.some((args) => args[2].endsWith("SHA256SUMS")));
     for (const args of calls) {
       assert.ok(args.includes("--signer-workflow"));
       assert.ok(args.includes("--source-digest"));
       assert.ok(args.includes("--source-ref"));
+      assert.ok(args.includes("--predicate-type"));
       assert.ok(args.includes("--deny-self-hosted-runners"));
     }
   } finally {

@@ -5,9 +5,11 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { gzipSync } from "node:zlib";
 
 import {
   assembleReleaseBundle,
+  tarFiles,
   validateReleaseBundle,
   validateReleaseMetadata,
   validateVersionTexts,
@@ -22,6 +24,20 @@ import {
 const VERSION = "2.1.1";
 const COMMIT = "a".repeat(40);
 const repositoryRoot = resolve(fileURLToPath(new URL("../", import.meta.url)));
+
+function tarHeader(name, type, size = 0) {
+  const header = Buffer.alloc(512);
+  header.write(name, 0, 100, "utf8");
+  header.write(size.toString(8).padStart(11, "0"), 124, 11, "ascii");
+  header[135] = 0;
+  header.fill(0x20, 148, 156);
+  header[156] = type.charCodeAt(0);
+  const checksum = header.reduce((sum, byte) => sum + byte, 0);
+  header.write(checksum.toString(8).padStart(6, "0"), 148, 6, "ascii");
+  header[154] = 0;
+  header[155] = 0x20;
+  return header;
+}
 
 test("release metadata and a stable tag stay synchronized", async () => {
   assert.equal(await validateReleaseMetadata({ tag: `v${VERSION}` }), VERSION);
@@ -62,6 +78,13 @@ test("version validation rejects drift and npm publication", () => {
     () => validateVersionTexts({
       ...base,
       changelog: `\`\`\`\`md\nnot a release\n\`\`\`\n## ${VERSION} — 2026-07-20\n\`\`\`\``,
+    }),
+    /one real/,
+  );
+  assert.throws(
+    () => validateVersionTexts({
+      ...base,
+      changelog: `\`\`\`\`md\n\`\`\`<!-- still fenced -->\n## ${VERSION} — 2026-07-20\n\`\`\`\``,
     }),
     /one real/,
   );
@@ -136,18 +159,34 @@ test("release bundle has exact inventory, source binding, and checksums", async 
   }
 });
 
+test("tar validation rejects unexpected entry types and non-zero padding", () => {
+  const directoryArchive = gzipSync(Buffer.concat([
+    tarHeader("package/unexpected-directory/", "5"),
+    Buffer.alloc(1024),
+  ]));
+  assert.throws(() => tarFiles(directoryArchive), /Unsupported tar entry type/);
+
+  const contentBlock = Buffer.alloc(512);
+  contentBlock[0] = 0x61;
+  contentBlock[1] = 0x62;
+  const paddedArchive = gzipSync(Buffer.concat([
+    tarHeader("package/file.txt", "0", 1),
+    contentBlock,
+    Buffer.alloc(1024),
+  ]));
+  assert.throws(() => tarFiles(paddedArchive), /non-zero padding/);
+});
+
 function apiResult(args, {
   expected,
   defaultCommit = COMMIT,
   tagCommit = COMMIT,
-  immutableSettings = true,
   publishedImmutable = true,
   latestId = 42,
 } = {}) {
   const endpoint = args.at(-1);
   let body;
-  if (endpoint === "repos/owner/repository/immutable-releases") body = { enabled: immutableSettings };
-  else if (endpoint === "repos/owner/repository/commits/main") body = { sha: defaultCommit };
+  if (endpoint === "repos/owner/repository/commits/main") body = { sha: defaultCommit };
   else if (endpoint === "repos/owner/repository/git/ref/tags/v2.1.1") {
     body = { object: { type: "commit", sha: tagCommit } };
   } else if (endpoint === "repos/owner/repository/releases/tags/v2.1.1") {
@@ -204,7 +243,6 @@ test("release publishing verifies source, digests, latest status, and immutabili
     });
     assert.ok(calls.some((args) => args[1] === "create"));
     assert.ok(calls.some((args) => args[1] === "edit"));
-    assert.equal(calls.filter((args) => args.at(-1) === "repos/owner/repository/immutable-releases").length, 2);
     assert.equal(calls.filter((args) => args.at(-1) === "repos/owner/repository/git/ref/tags/v2.1.1").length, 2);
     assert.ok(!calls.some((args) => args[1] === "delete"));
     assert.throws(
@@ -307,13 +345,12 @@ test("release publishing refuses to delete a draft with foreign assets", async (
   }
 });
 
-test("release publishing fails closed when immutable releases or source bindings drift", async () => {
+test("release publishing fails closed when source bindings drift", async () => {
   const directory = await mkdtemp(join(tmpdir(), "dig-publish-preflight-"));
   await writeFile(join(directory, "asset.txt"), "verified");
   const expected = await localAssetManifest(directory);
   try {
     for (const [options, pattern] of [
-      [{ immutableSettings: false }, /immutable releases must be enabled/i],
       [{ defaultCommit: "b".repeat(40) }, /no longer the current main commit/],
       [{ tagCommit: "b".repeat(40) }, /does not resolve to the verified source commit/],
     ]) {
@@ -345,43 +382,48 @@ test("release publishing verifies immutable latest state after promotion without
   const directory = await mkdtemp(join(tmpdir(), "dig-publish-promoted-"));
   await writeFile(join(directory, "asset.txt"), "verified");
   const expected = await localAssetManifest(directory);
-  const calls = [];
-  let viewCount = 0;
-  const run = (args) => {
-    calls.push(args);
-    if (args[0] === "api") return apiResult(args, { expected, latestId: 7 });
-    if (args[1] === "create" || args[1] === "edit") return { status: 0, stdout: "", stderr: "" };
-    if (args[1] === "view") {
-      viewCount += 1;
-      if (viewCount === 1) return { status: 1, stdout: "", stderr: "release not found" };
-      return {
-        status: 0,
-        stdout: JSON.stringify({
-          databaseId: 42,
-          tagName: "v2.1.1",
-          isDraft: true,
-          assets: expected.map(({ name, digest }) => ({ name, digest })),
-        }),
-        stderr: "",
-      };
-    }
-    throw new Error(`Unexpected gh call: ${args.join(" ")}`);
-  };
   try {
-    await assert.rejects(
-      () => publishReleaseCandidate({
-        directory,
-        tag: "v2.1.1",
-        repository: "owner/repository",
-        defaultBranch: "main",
-        sourceCommit: COMMIT,
-        run,
-        pause: async () => {},
-      }),
-      /not promoted to latest/,
-    );
-    assert.ok(calls.some((args) => args[1] === "edit"));
-    assert.ok(!calls.some((args) => args[1] === "delete"));
+    for (const [apiOptions, pattern] of [
+      [{ latestId: 7 }, /not promoted to latest/],
+      [{ publishedImmutable: false }, /not immutable/],
+    ]) {
+      const calls = [];
+      let viewCount = 0;
+      const run = (args) => {
+        calls.push(args);
+        if (args[0] === "api") return apiResult(args, { expected, ...apiOptions });
+        if (args[1] === "create" || args[1] === "edit") return { status: 0, stdout: "", stderr: "" };
+        if (args[1] === "view") {
+          viewCount += 1;
+          if (viewCount === 1) return { status: 1, stdout: "", stderr: "release not found" };
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              databaseId: 42,
+              tagName: "v2.1.1",
+              isDraft: true,
+              assets: expected.map(({ name, digest }) => ({ name, digest })),
+            }),
+            stderr: "",
+          };
+        }
+        throw new Error(`Unexpected gh call: ${args.join(" ")}`);
+      };
+      await assert.rejects(
+        () => publishReleaseCandidate({
+          directory,
+          tag: "v2.1.1",
+          repository: "owner/repository",
+          defaultBranch: "main",
+          sourceCommit: COMMIT,
+          run,
+          pause: async () => {},
+        }),
+        pattern,
+      );
+      assert.ok(calls.some((args) => args[1] === "edit"));
+      assert.ok(!calls.some((args) => args[1] === "delete"));
+    }
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

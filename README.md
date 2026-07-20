@@ -45,10 +45,12 @@ through the published `dig-gopher` command. Volatile SBOM metadata is removed an
 generated documents must also match byte for byte. The release bundle contains the npm
 archive, a CycloneDX SBOM, dependency evidence, the exact source commit, release metadata and a
 complete `SHA256SUMS` manifest. Tagged releases are accepted only when the tag matches the project
-version and points to the current reviewed `main` commit. GitHub then attests every checksummed asset,
-verifies the OIDC identity, source commit, tag ref and signer workflow, uploads the bundle to a draft
-release, and rechecks the current `main` tip. A tested cross-platform publisher compares the remote
-inventory and digests before promoting the release to latest. A failed verification removes the draft.
+version and points to the current reviewed `main` commit. GitHub then attests every release asset,
+including `SHA256SUMS`, and verifies the OIDC identity, source commit, tag ref and signer workflow.
+A tested cross-platform publisher uploads the bundle to a draft, rechecks the current `main` tip and
+remote tag, and compares the complete remote inventory and digests before promotion. GitHub must
+report the published result as both latest and immutable. A failed pre-publication verification
+removes only the exact candidate draft; a published release is never deleted or rewritten.
 
 This integrity evidence does not grant a software license. The repository remains `UNLICENSED`
 until all contributors agree on licensing terms.
