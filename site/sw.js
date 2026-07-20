@@ -10,7 +10,6 @@ const CORE_ASSETS = [
   "./fixtures/root.txt?v=2.1.1",
   "./assets/dig-mark.svg",
   "./assets/dig-lockup.svg",
-  "./assets/demo-poster.svg",
 ];
 
 async function cachedOrError(request) {

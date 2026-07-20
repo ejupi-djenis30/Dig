@@ -5,9 +5,9 @@
 
   [![CI](https://github.com/ejupi-djenis30/Dig/actions/workflows/ci.yml/badge.svg)](https://github.com/ejupi-djenis30/Dig/actions/workflows/ci.yml)
 
-  DIG is a small Gopher client for the terminal and an interactive protocol explorer for the web. The CLI opens real `gopher://` addresses. The public demo uses an included fixture because browsers cannot create raw TCP connections.
+  DIG is a small Gopher client for the terminal and an interactive protocol explorer for the web. The CLI opens real `gopher://` addresses. The public explorer uses an included fixture because browsers cannot create raw TCP connections.
 
-  [Live protocol explorer](https://ejupi-djenis30.github.io/Dig/) · [Watch the demo](site/assets/demo.mp4) · [Run the CLI](#run-the-cli) · [Verify a release](#release-integrity) · [Read the parser](site/protocol.mjs) · [Support](SUPPORT.md) · [Security](SECURITY.md)
+  [Live protocol explorer](https://ejupi-djenis30.github.io/Dig/) · [Run the CLI](#run-the-cli) · [Verify a release](#release-integrity) · [Read the parser](site/protocol.mjs) · [Support](SUPPORT.md) · [Security](SECURITY.md)
 </div>
 
 ## What works
@@ -35,7 +35,7 @@ Inspect the available limits and raw-output mode with `node bin/dig.mjs --help`.
 
 Use only servers you trust and are authorized to reach. The CLI makes a direct, unencrypted
 network connection to the host in the URL, including local or private addresses. Redirect binary
-items to a file; DIG refuses to print them directly to a terminal. The web demo never connects to
+items to a file; DIG refuses to print them directly to a terminal. The web explorer never connects to
 a Gopher server.
 
 ## Release integrity
