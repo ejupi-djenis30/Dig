@@ -22,6 +22,7 @@ const markdownParser = unified().use(remarkParse);
 
 function visibleMarkdownText(node) {
   if (["text", "inlineCode", "code"].includes(node.type)) return node.value;
+  if (node.type === "break") return " ";
   if (["html", "image", "imageReference"].includes(node.type)) return "";
   return Array.isArray(node.children) ? node.children.map(visibleMarkdownText).join("") : "";
 }

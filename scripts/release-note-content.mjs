@@ -2,6 +2,7 @@ import { isIP } from "node:net";
 import { URL, domainToASCII } from "node:url";
 
 const defaultIgnorableCodePointPattern = /\p{Default_Ignorable_Code_Point}/gu;
+const formatCodePointPattern = /\p{Cf}/gu;
 const controlOrWhitespacePattern = /[\p{White_Space}\p{Cc}]+/gu;
 const unicodeDotPattern = /[\u3002\uFF0E\uFF61]/gu;
 const letterOrNumberPattern = /[\p{L}\p{N}]/u;
@@ -21,6 +22,12 @@ const languageTechnologyPattern = /^(?:c(?:\+\+|#)?|go|java|javascript|kotlin|py
 const namedRuntimePattern = /^(?:deno(?:\.land)?|node)$/iu;
 const architecturePattern = /^(?:aarch64|arm64|x64|x86)$/iu;
 const acronymPattern = /^[A-Z][A-Z\d]{1,7}$/u;
+const namespaceSymbolPattern = /^[A-Za-z_][A-Za-z\d_]*(?:::[A-Za-z_][A-Za-z\d_]*)+$/u;
+const qualifiedSymbolPattern = /^[A-Z_$][A-Za-z\d_$]*(?:\.[A-Za-z_$][A-Za-z\d_$]*)+$/u;
+const packageSubpathPattern = /^[a-z\d]+(?:-[a-z\d]+)+\/[a-z\d][a-z\d._-]*$/iu;
+const protocolVersionPattern = /^[A-Z][A-Z\d]{1,15}\/v?\d+(?:\.\d+)*$/u;
+const mixedCaseTechnologyPattern = /^(?:[A-Z]{2,}[a-z]+|[A-Z][a-z]+[A-Z][A-Za-z\d]*)$/u;
+const connectorPattern = /^[\p{P}\p{S}]$/u;
 
 const knownSchemes = new Set([
   "about", "blob", "data", "file", "ftp", "ftps", "geo", "git", "gopher",
@@ -38,8 +45,9 @@ const exactWrapperPairs = new Map([
   ["“", "”"], ["‘", "’"], ["„", "“"], ["‚", "‘"],
   ["\"", "\""], ["'", "'"], ["`", "`"],
 ]);
+const exactClosingWrappers = new Set(exactWrapperPairs.values());
 
-const compositeSeparators = new Set([";", ",", "|", "&", "+", "=", "~", "_", "…", "—", "–"]);
+const referenceStructuralPunctuation = new Set([".", "/", "\\", ":", "@", "?", "#", "-"]);
 // Lowercase word/word text is indistinguishable from a repository path without
 // vocabulary. Only these symmetric human relations are prose; other paths fail closed.
 const humanSlashPairs = new Map([
@@ -47,10 +55,16 @@ const humanSlashPairs = new Map([
   ["before", "after"],
   ["client", "server"],
   ["input", "output"],
+  ["producer", "consumer"],
   ["read", "write"],
   ["request", "response"],
+  ["sync", "async"],
   ["source", "target"],
   ["up", "down"],
+]);
+const lowercaseProseLabels = new Set([
+  "add", "added", "change", "changed", "deprecate", "deprecated", "docs",
+  "fix", "fixed", "remove", "removed", "security", "update", "updated",
 ]);
 const maximumSegmentationDepth = 32;
 
@@ -59,6 +73,7 @@ export function normalizeReleaseNoteText(value) {
   return value
     .normalize("NFKC")
     .replace(defaultIgnorableCodePointPattern, "")
+    .replace(formatCodePointPattern, "")
     .replace(unicodeDotPattern, ".")
     .replace(controlOrWhitespacePattern, " ")
     .trim();
@@ -78,29 +93,10 @@ function matchesWrapper(expectation, character) {
   return closingQuotePattern.test(character);
 }
 
-function closingWrapperIndex(characters, start) {
-  const first = wrapperExpectation(characters[start]);
-  if (first === null) return -1;
-  const stack = [first];
-  for (let index = start + 1; index < characters.length; index += 1) {
-    const character = characters[index];
-    if (matchesWrapper(stack.at(-1), character)) {
-      stack.pop();
-      if (stack.length === 0) return index;
-      continue;
-    }
-    const nested = wrapperExpectation(character);
-    if (nested !== null) stack.push(nested);
-  }
-  return -1;
-}
-
-function unwrapWholeWrapper(value) {
-  const characters = [...value];
-  const closingIndex = closingWrapperIndex(characters, 0);
-  return closingIndex === characters.length - 1
-    ? characters.slice(1, -1).join("")
-    : null;
+function isClosingWrapper(character) {
+  return exactClosingWrappers.has(character)
+    || closingParenthesisPattern.test(character)
+    || closingQuotePattern.test(character);
 }
 
 // Technology terms are grammar-based rather than a growing token allowlist:
@@ -122,10 +118,20 @@ function isHumanSlashPair(value) {
 
 function isTechnologyExpression(rawValue) {
   const value = rawValue.replace(/[.!?,;]+$/u, "");
-  if (nodeBuiltinPattern.test(value) || npmScopedPackagePattern.test(value) || isTechnologyAtom(value)) return true;
+  if (
+    nodeBuiltinPattern.test(value)
+    || npmScopedPackagePattern.test(value)
+    || namespaceSymbolPattern.test(value)
+    || qualifiedSymbolPattern.test(value)
+    || packageSubpathPattern.test(value)
+    || protocolVersionPattern.test(value)
+    || isTechnologyAtom(value)
+  ) return true;
   if (isHumanSlashPair(value)) return true;
   const slashParts = value.split("/");
-  return slashParts.length > 1 && slashParts.every(isTechnologyAtom);
+  return slashParts.length > 1
+    && slashParts.every((part) => isTechnologyAtom(part) || mixedCaseTechnologyPattern.test(part))
+    && slashParts.some((part) => isTechnologyAtom(part));
 }
 
 function hostFromLocation(value) {
@@ -202,12 +208,14 @@ function isScpStyleReference(value) {
 function isExplicitPathReference(value) {
   if (/^(?:[/\\]|\.{1,2}(?:[/\\]|$)|~(?:[/\\]|$)|[#?])/u.test(value)) return true;
   if (isTechnologyExpression(value)) return false;
-  const segments = value.split(/[\\/]/u);
+  const queryBoundary = value.search(/[?#]/u);
+  const path = queryBoundary > 0 ? value.slice(0, queryBoundary) : value;
+  const segments = path.split(/[\\/]/u);
   return segments.length > 1 && segments.every((segment) => segment !== "" && pathSegmentPattern.test(segment));
 }
 
 function isProseLabel(value) {
-  return (proseLabelPattern.test(value) || acronymPattern.test(value))
+  return (proseLabelPattern.test(value) || acronymPattern.test(value) || lowercaseProseLabels.has(value))
     && !knownSchemes.has(value.toLowerCase());
 }
 
@@ -215,13 +223,13 @@ function isProseLabelToken(value) {
   return value.endsWith(":") && isProseLabel(value.slice(0, -1));
 }
 
-function isGluedLabelReference(value) {
+function isGluedLabelProse(value) {
   for (const delimiter of [":", "—", "–"]) {
     const separator = value.indexOf(delimiter);
     if (separator <= 0) continue;
     const label = value.slice(0, separator);
     const remainder = value.slice(separator + delimiter.length);
-    if (isProseLabel(label) && remainder !== "" && isLocationOrReferenceExpression(remainder)) return true;
+    if (isProseLabel(label) && remainder !== "" && letterOrNumberPattern.test(remainder)) return true;
   }
   return false;
 }
@@ -244,20 +252,34 @@ function compositeSegments(value) {
   const characters = [...value];
   const segments = [];
   const current = [];
+  const wrappers = [];
   for (let index = 0; index < characters.length; index += 1) {
     const character = characters[index];
-    const closingIndex = closingWrapperIndex(characters, index);
-    if (closingIndex !== -1) {
-      pushSegment(segments, current);
-      const inner = characters.slice(index + 1, closingIndex).join("").trim();
-      if (inner !== "") segments.push(inner);
-      index = closingIndex;
+
+    if (wrappers.length > 0 && matchesWrapper(wrappers.at(-1), character)) {
+      wrappers.pop();
+      if (wrappers.length === 0) pushSegment(segments, current);
       continue;
     }
+
+    const wrapper = wrapperExpectation(character);
+    if (wrapper !== null) {
+      if (wrappers.length === 0) pushSegment(segments, current);
+      wrappers.push(wrapper);
+      continue;
+    }
+
+    if (isClosingWrapper(character)) {
+      pushSegment(segments, current);
+      continue;
+    }
+
     const isAsciiEllipsis = character === "." && characters[index + 1] === "." && characters[index + 2] === ".";
-    if (compositeSeparators.has(character) || isAsciiEllipsis) {
+    const isConnector = connectorPattern.test(character) && !referenceStructuralPunctuation.has(character);
+    if (isConnector || isAsciiEllipsis) {
       pushSegment(segments, current);
       if (isAsciiEllipsis) index += 2;
+      if (character === "%" && /^[\dA-Fa-f]{2}$/u.test(`${characters[index + 1] ?? ""}${characters[index + 2] ?? ""}`)) index += 2;
       continue;
     }
     current.push(character);
@@ -271,9 +293,7 @@ function hasSubstantiveSegment(rawValue, depth = 0) {
   const value = rawValue.trim();
   if (!letterOrNumberPattern.test(value)) return false;
 
-  const unwrapped = unwrapWholeWrapper(value);
-  if (unwrapped !== null) return hasSubstantiveSegment(unwrapped, depth + 1);
-  if (isTechnologyExpression(value) || isGluedLabelReference(value)) return true;
+  if (isTechnologyExpression(value) || isGluedLabelProse(value)) return true;
 
   // Complete references are classified before separators are considered, so URI
   // query characters and path punctuation cannot be mistaken for prose.

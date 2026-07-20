@@ -3,6 +3,15 @@ import test from "node:test";
 
 import { hasSubstantiveReleaseNoteText } from "../scripts/release-note-content.mjs";
 
+const asciiPunctuation = Array.from({ length: 94 }, (_, index) => String.fromCodePoint(index + 33))
+  .filter((character) => /^[\p{P}\p{S}]$/u.test(character));
+const nonIgnorableFormatCodePoints = [
+  0x600, 0x601, 0x602, 0x603, 0x604, 0x605, 0x6DD, 0x70F, 0x890, 0x891, 0x8E2,
+  0xFFF9, 0xFFFA, 0xFFFB, 0x110BD, 0x110CD, 0x13430, 0x13431, 0x13432, 0x13433,
+  0x13434, 0x13435, 0x13436, 0x13437, 0x13438, 0x13439, 0x1343A, 0x1343B, 0x1343C,
+  0x1343D, 0x1343E, 0x1343F,
+];
+
 const referenceOnlyNotes = [
   ["URL obfuscated with combining grapheme joiner", "h\u034Fttps://example.test/release"],
   ["URL obfuscated with variation selector", "h\uFE0Fttps://example.test/release"],
@@ -100,6 +109,17 @@ const referenceOnlyNotes = [
   ["underscore-separated references", "example.test_//other.example.test"],
   ["Unicode-ellipsis-separated references", "example.test…mailto:release@example.test"],
   ["ASCII-ellipsis-separated references", "example.test...mailto:release@example.test"],
+  ["percent-separated references", "example.test%localhost"],
+  ["percent-encoded path between references", "example.test%2Flocalhost"],
+  ["unclosed wrapper", "{example.test"],
+  ["interlinear annotation anchor", "example.test\uFFF9localhost"],
+  ["repository path with query", "owner/repository?tab=readme"],
+  ...asciiPunctuation.map(
+    (separator) => [`ASCII U+${separator.codePointAt(0).toString(16)} between references`, `example.test${separator}localhost`],
+  ),
+  ...nonIgnorableFormatCodePoints.map(
+    (codePoint) => [`format U+${codePoint.toString(16)} between references`, `example.test${String.fromCodePoint(codePoint)}localhost`],
+  ),
   ["NEL-separated references", "example.test\u0085mailto:release@example.test"],
   ["NUL-separated references", "example.test\u0000urn:example:release"],
   ["Cc unit-separator references", "127.1\u001Fexample.test"],
@@ -157,6 +177,21 @@ const substantiveNotes = [
   ["Go and Rust language compound", "Go/Rust"],
   ["client/server human compound", "client/server"],
   ["read/write human compound", "read/write"],
+  ["producer/consumer human compound", "producer/consumer"],
+  ["glued label and prose", "Fixed:regression"],
+  ["C++ namespace symbol", "std::vector"],
+  ["qualified JavaScript symbol", "Promise.resolve"],
+  ["glued changed label", "Changed:parser"],
+  ["glued added label", "Added:Node.js"],
+  ["lowercase fix label", "fix:parser"],
+  ["Tokio namespace symbol", "tokio::spawn"],
+  ["qualified .NET symbol", "System.Text.Json"],
+  ["ASP.NET technology", "ASP.NET"],
+  ["package subpath", "react-dom/client"],
+  ["sync/async human compound", "sync/async"],
+  ["HTTP protocol version", "HTTP/2"],
+  ["TLS protocol version", "TLS/1.3"],
+  ["OAuth/OIDC technology compound", "OAuth/OIDC"],
 ];
 
 test("reference-only release notes fail closed across URI, host, address, email, and path forms", () => {
@@ -169,4 +204,14 @@ test("technology names and genuine multilingual prose remain substantive", () =>
   for (const [name, value] of substantiveNotes) {
     assert.equal(hasSubstantiveReleaseNoteText(value), true, `${name}: ${JSON.stringify(value)}`);
   }
+});
+
+test("unclosed wrappers are classified in linear time", () => {
+  const start = performance.now();
+  assert.equal(hasSubstantiveReleaseNoteText(`${"{".repeat(16_000)}example.test`), false);
+  assert.ok(performance.now() - start < 1_000, "16k unclosed wrappers should not trigger quadratic scanning");
+});
+
+test("deep balanced wrappers do not consume semantic recursion depth", () => {
+  assert.equal(hasSubstantiveReleaseNoteText(`${"(".repeat(64)}real prose${")".repeat(64)}`), true);
 });
