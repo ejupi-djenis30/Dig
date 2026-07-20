@@ -18,6 +18,18 @@ test("release workflow keeps actions pinned and publication tag-only", () => {
     () => validateReleaseWorkflowText(workflow.replace("github.event_name == 'push' && ", "")),
     /tag push/,
   );
+  assert.throws(
+    () => validateReleaseWorkflowText(workflow.replace("permissions:\n  contents: read", "permissions:\n  contents: read\n  id-token: write")),
+    /only read-only contents permission/,
+  );
+  assert.throws(
+    () => validateReleaseWorkflowText(workflow.replace("runs-on: ubuntu-24.04", "runs-on: ubuntu-latest")),
+    /pinned Ubuntu runner/,
+  );
+  assert.throws(
+    () => validateReleaseWorkflowText(workflow.replace('node-version: "22.23.1"', 'node-version: "22"')),
+    /exact supported Node\.js runtime/,
+  );
 });
 
 test("release workflow keeps OIDC scoped and provenance ahead of publication", () => {
@@ -33,4 +45,8 @@ test("release workflow keeps OIDC scoped and provenance ahead of publication", (
     .replace("node scripts/publish-release.mjs", "node scripts/verify-attestations.mjs")
     .replace("node scripts/__swap.mjs", "node scripts/publish-release.mjs");
   assert.throws(() => validateReleaseWorkflowText(moved), /after provenance verification/);
+  assert.throws(
+    () => validateReleaseWorkflowText(workflow.replace("sha256sum --check --strict", "sha256sum --check")),
+    /checksum-verified/,
+  );
 });

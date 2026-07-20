@@ -34,7 +34,28 @@ export function validateReleaseWorkflowText(workflow) {
 
   const build = jobBlock(workflow, "build");
   const publish = jobBlock(workflow, "publish");
-  assert.match(workflow, /^permissions:\n  contents: read$/m, "Workflow defaults must grant read-only contents permission.");
+  const topLevelPermissions = workflow.match(/^permissions:\r?\n((?:  [^\r\n]+\r?\n?)*)/m);
+  assert.ok(topLevelPermissions, "Release workflow must declare top-level permissions.");
+  assert.deepEqual(
+    topLevelPermissions[1].split(/\r?\n/).filter(Boolean).map((line) => line.trim()),
+    ["contents: read"],
+    "Workflow defaults must grant only read-only contents permission.",
+  );
+  assert.deepEqual(
+    workflow.match(/^    runs-on: .+$/gm),
+    ["    runs-on: ubuntu-24.04", "    runs-on: ubuntu-24.04"],
+    "Release jobs must use the pinned Ubuntu runner line.",
+  );
+  assert.deepEqual(
+    workflow.match(/^          node-version: .+$/gm),
+    ['          node-version: "22.23.1"', '          node-version: "22.23.1"'],
+    "Release jobs must use the exact supported Node.js runtime.",
+  );
+  assert.equal(
+    (workflow.match(/\[\[ "\$\(npm --version\)" == "10\.9\.8" \]\]/g) ?? []).length,
+    2,
+    "Release jobs must verify the npm version bundled with the pinned Node.js runtime.",
+  );
   assert.doesNotMatch(build, /^\s+id-token:/m, "Build job must not receive an OIDC token.");
   assert.doesNotMatch(build, /^    permissions:/m, "Build job must not override the read-only workflow permissions.");
   assert.match(
@@ -57,6 +78,16 @@ export function validateReleaseWorkflowText(workflow) {
   const attestation = publish.indexOf("uses: actions/attest@");
   const verification = publish.indexOf("node scripts/verify-attestations.mjs");
   const publication = publish.indexOf("node scripts/publish-release.mjs");
+  const ghInstallation = publish.indexOf("name: Install verified GitHub CLI");
+  assert.ok(ghInstallation >= 0, "Publish job must install a checksummed GitHub CLI.");
+  assert.ok(ghInstallation < verification, "The verified GitHub CLI must be installed before provenance verification.");
+  assert.ok(publish.includes('GH_CLI_VERSION: "2.94.0"'), "GitHub CLI version changed unexpectedly.");
+  assert.ok(
+    publish.includes('GH_CLI_SHA256: "a757f1ba6db18f4de8cbadb244843a5f89bc75b5e7c6fc127d2bd77fbd12ed62"'),
+    "GitHub CLI checksum changed unexpectedly.",
+  );
+  assert.ok(publish.includes("sha256sum --check --strict"), "GitHub CLI archive must be checksum-verified.");
+  assert.ok(publish.includes('>> "${GITHUB_PATH}"'), "Verified GitHub CLI must be placed on the workflow path.");
   assert.ok(attestation >= 0, "Publish job must create GitHub attestations.");
   assert.ok(verification > attestation, "Attestations must be verified after creation.");
   assert.ok(publication > verification, "Release publication must happen after provenance verification.");

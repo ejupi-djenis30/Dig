@@ -59,6 +59,13 @@ test("version validation rejects drift and npm publication", () => {
     /one real/,
   );
   assert.throws(
+    () => validateVersionTexts({
+      ...base,
+      changelog: `\`\`\`\`md\nnot a release\n\`\`\`\n## ${VERSION} — 2026-07-20\n\`\`\`\``,
+    }),
+    /one real/,
+  );
+  assert.throws(
     () => validateVersionTexts({ ...base, changelog: `## ${VERSION} — 2026-02-30` }),
     /invalid date/,
   );
@@ -129,7 +136,35 @@ test("release bundle has exact inventory, source binding, and checksums", async 
   }
 });
 
-test("release publishing verifies every remote digest before promotion", async () => {
+function apiResult(args, {
+  expected,
+  defaultCommit = COMMIT,
+  tagCommit = COMMIT,
+  immutableSettings = true,
+  publishedImmutable = true,
+  latestId = 42,
+} = {}) {
+  const endpoint = args.at(-1);
+  let body;
+  if (endpoint === "repos/owner/repository/immutable-releases") body = { enabled: immutableSettings };
+  else if (endpoint === "repos/owner/repository/commits/main") body = { sha: defaultCommit };
+  else if (endpoint === "repos/owner/repository/git/ref/tags/v2.1.1") {
+    body = { object: { type: "commit", sha: tagCommit } };
+  } else if (endpoint === "repos/owner/repository/releases/tags/v2.1.1") {
+    body = {
+      id: 42,
+      tag_name: "v2.1.1",
+      draft: false,
+      immutable: publishedImmutable,
+      assets: expected.map(({ name, digest }) => ({ name, digest })),
+    };
+  } else if (endpoint === "repos/owner/repository/releases/latest") {
+    body = { id: latestId, tag_name: latestId === 42 ? "v2.1.1" : "v2.1.0" };
+  } else throw new Error(`Unexpected GitHub API call: ${endpoint}`);
+  return { status: 0, stdout: JSON.stringify(body), stderr: "" };
+}
+
+test("release publishing verifies source, digests, latest status, and immutability", async () => {
   const directory = await mkdtemp(join(tmpdir(), "dig-publish-contract-"));
   await writeFile(join(directory, "asset-a.txt"), "alpha");
   await writeFile(join(directory, "asset-b.txt"), "beta");
@@ -138,20 +173,18 @@ test("release publishing verifies every remote digest before promotion", async (
   let viewCount = 0;
   const run = (args) => {
     calls.push(args);
-    if (args[0] === "api") return { status: 0, stdout: `${COMMIT}\n`, stderr: "" };
-    if (args[0] === "release" && args[1] === "create") return { status: 0, stdout: "", stderr: "" };
-    if (args[0] === "release" && args[1] === "edit") return { status: 0, stdout: "", stderr: "" };
-    if (args[0] === "release" && args[1] === "view") {
+    if (args[0] === "api") return apiResult(args, { expected });
+    if (args[1] === "create" || args[1] === "edit") return { status: 0, stdout: "", stderr: "" };
+    if (args[1] === "view") {
       viewCount += 1;
       if (viewCount === 1) return { status: 1, stdout: "", stderr: "release not found" };
-      const published = expected.map(({ name, digest }) => ({ name, digest }));
       return {
         status: 0,
         stdout: JSON.stringify({
+          databaseId: 42,
           tagName: "v2.1.1",
-          isDraft: viewCount === 2,
-          isLatest: viewCount > 2,
-          assets: published,
+          isDraft: true,
+          assets: expected.map(({ name, digest }) => ({ name, digest })),
         }),
         stderr: "",
       };
@@ -171,6 +204,8 @@ test("release publishing verifies every remote digest before promotion", async (
     });
     assert.ok(calls.some((args) => args[1] === "create"));
     assert.ok(calls.some((args) => args[1] === "edit"));
+    assert.equal(calls.filter((args) => args.at(-1) === "repos/owner/repository/immutable-releases").length, 2);
+    assert.equal(calls.filter((args) => args.at(-1) === "repos/owner/repository/git/ref/tags/v2.1.1").length, 2);
     assert.ok(!calls.some((args) => args[1] === "delete"));
     assert.throws(
       () => verifyPublishedAssets(expected, [{ name: expected[0].name, digest: "sha256:wrong" }]),
@@ -181,26 +216,27 @@ test("release publishing verifies every remote digest before promotion", async (
   }
 });
 
-test("release publishing cleans up a draft that fails digest verification", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "dig-publish-cleanup-"));
-  await writeFile(join(directory, "asset.txt"), "verified");
+test("release publishing cleans up a candidate draft after partial create failure", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "dig-publish-partial-"));
+  await writeFile(join(directory, "asset-a.txt"), "alpha");
+  await writeFile(join(directory, "asset-b.txt"), "beta");
+  const expected = await localAssetManifest(directory);
   const calls = [];
-  let firstView = true;
+  let viewCount = 0;
   const run = (args) => {
     calls.push(args);
-    if (args[0] === "api") return { status: 0, stdout: `${COMMIT}\n`, stderr: "" };
-    if (args[1] === "view" && firstView) {
-      firstView = false;
-      return { status: 1, stdout: "", stderr: "HTTP 404: Not Found" };
-    }
-    if (args[1] === "create" || args[1] === "delete") return { status: 0, stdout: "", stderr: "" };
+    if (args[0] === "api") return apiResult(args, { expected });
+    if (args[1] === "create") return { status: 1, stdout: "", stderr: "upload failed" };
+    if (args[1] === "delete") return { status: 0, stdout: "", stderr: "" };
     if (args[1] === "view") {
+      viewCount += 1;
+      if (viewCount === 1) return { status: 1, stdout: "", stderr: "HTTP 404: Not Found" };
       return {
         status: 0,
         stdout: JSON.stringify({
           tagName: "v2.1.1",
           isDraft: true,
-          assets: [{ name: "asset.txt", digest: "sha256:wrong" }],
+          assets: expected.slice(0, 1).map(({ name }) => ({ name, digest: null })),
         }),
         stderr: "",
       };
@@ -209,17 +245,16 @@ test("release publishing cleans up a draft that fails digest verification", asyn
   };
   try {
     await assert.rejects(
-      () =>
-        publishReleaseCandidate({
-          directory,
-          tag: "v2.1.1",
-          repository: "owner/repository",
-          defaultBranch: "main",
-          sourceCommit: COMMIT,
-          run,
-          pause: async () => {},
-        }),
-      /do not match/,
+      () => publishReleaseCandidate({
+        directory,
+        tag: "v2.1.1",
+        repository: "owner/repository",
+        defaultBranch: "main",
+        sourceCommit: COMMIT,
+        run,
+        pause: async () => {},
+      }),
+      /upload failed/,
     );
     assert.ok(calls.some((args) => args[1] === "delete"));
     assert.ok(!calls.some((args) => args[1] === "edit"));
@@ -228,15 +263,16 @@ test("release publishing cleans up a draft that fails digest verification", asyn
   }
 });
 
-test("release publishing never deletes a release after promotion", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "dig-publish-promoted-"));
+test("release publishing refuses to delete a draft with foreign assets", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "dig-publish-foreign-"));
   await writeFile(join(directory, "asset.txt"), "verified");
   const expected = await localAssetManifest(directory);
-  const calls = [];
   let viewCount = 0;
+  const calls = [];
   const run = (args) => {
     calls.push(args);
-    if (args[0] === "api") return { status: 0, stdout: `${COMMIT}\n`, stderr: "" };
+    if (args[0] === "api") return apiResult(args, { expected });
+    if (args[1] === "create") return { status: 1, stdout: "", stderr: "upload failed" };
     if (args[1] === "view") {
       viewCount += 1;
       if (viewCount === 1) return { status: 1, stdout: "", stderr: "release not found" };
@@ -244,62 +280,108 @@ test("release publishing never deletes a release after promotion", async () => {
         status: 0,
         stdout: JSON.stringify({
           tagName: "v2.1.1",
-          isDraft: viewCount === 2,
-          isLatest: false,
-          assets: expected.map(({ name, digest }) => ({ name, digest })),
+          isDraft: true,
+          assets: [{ name: "foreign.txt", digest: "sha256:foreign" }],
         }),
         stderr: "",
       };
     }
-    if (args[1] === "create" || args[1] === "edit") return { status: 0, stdout: "", stderr: "" };
     throw new Error(`Unexpected gh call: ${args.join(" ")}`);
   };
   try {
     await assert.rejects(
-      () =>
-        publishReleaseCandidate({
-          directory,
-          tag: "v2.1.1",
-          repository: "owner/repository",
-          defaultBranch: "main",
-          sourceCommit: COMMIT,
-          run,
-          pause: async () => {},
-        }),
-      /not promoted to latest/,
+      () => publishReleaseCandidate({
+        directory,
+        tag: "v2.1.1",
+        repository: "owner/repository",
+        defaultBranch: "main",
+        sourceCommit: COMMIT,
+        run,
+        pause: async () => {},
+      }),
+      /Cleanup also failed.*foreign\.txt/,
     );
-    assert.ok(calls.some((args) => args[1] === "edit"));
     assert.ok(!calls.some((args) => args[1] === "delete"));
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
 });
 
-test("release publishing fails before mutation when the default branch advances", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "dig-publish-stale-"));
+test("release publishing fails closed when immutable releases or source bindings drift", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "dig-publish-preflight-"));
   await writeFile(join(directory, "asset.txt"), "verified");
-  const calls = [];
-  const run = (args) => {
-    calls.push(args);
-    if (args[0] === "api") return { status: 0, stdout: `${"b".repeat(40)}\n`, stderr: "" };
-    throw new Error(`Unexpected gh call: ${args.join(" ")}`);
-  };
+  const expected = await localAssetManifest(directory);
   try {
-    await assert.rejects(
-      () =>
-        publishReleaseCandidate({
+    for (const [options, pattern] of [
+      [{ immutableSettings: false }, /immutable releases must be enabled/i],
+      [{ defaultCommit: "b".repeat(40) }, /no longer the current main commit/],
+      [{ tagCommit: "b".repeat(40) }, /does not resolve to the verified source commit/],
+    ]) {
+      const calls = [];
+      await assert.rejects(
+        () => publishReleaseCandidate({
           directory,
           tag: "v2.1.1",
           repository: "owner/repository",
           defaultBranch: "main",
           sourceCommit: COMMIT,
-          run,
+          run: (args) => {
+            calls.push(args);
+            if (args[0] === "api") return apiResult(args, { expected, ...options });
+            throw new Error(`Unexpected mutation: ${args.join(" ")}`);
+          },
           pause: async () => {},
         }),
-      /no longer the current main commit/,
+        pattern,
+      );
+      assert.ok(calls.every((args) => args[0] === "api"));
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("release publishing verifies immutable latest state after promotion without deleting it", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "dig-publish-promoted-"));
+  await writeFile(join(directory, "asset.txt"), "verified");
+  const expected = await localAssetManifest(directory);
+  const calls = [];
+  let viewCount = 0;
+  const run = (args) => {
+    calls.push(args);
+    if (args[0] === "api") return apiResult(args, { expected, latestId: 7 });
+    if (args[1] === "create" || args[1] === "edit") return { status: 0, stdout: "", stderr: "" };
+    if (args[1] === "view") {
+      viewCount += 1;
+      if (viewCount === 1) return { status: 1, stdout: "", stderr: "release not found" };
+      return {
+        status: 0,
+        stdout: JSON.stringify({
+          databaseId: 42,
+          tagName: "v2.1.1",
+          isDraft: true,
+          assets: expected.map(({ name, digest }) => ({ name, digest })),
+        }),
+        stderr: "",
+      };
+    }
+    throw new Error(`Unexpected gh call: ${args.join(" ")}`);
+  };
+  try {
+    await assert.rejects(
+      () => publishReleaseCandidate({
+        directory,
+        tag: "v2.1.1",
+        repository: "owner/repository",
+        defaultBranch: "main",
+        sourceCommit: COMMIT,
+        run,
+        pause: async () => {},
+      }),
+      /not promoted to latest/,
     );
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0][0], "api");
+    assert.ok(calls.some((args) => args[1] === "edit"));
+    assert.ok(!calls.some((args) => args[1] === "delete"));
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

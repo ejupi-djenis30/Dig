@@ -40,14 +40,21 @@ function releaseHeadings(changelog) {
   const headings = [];
   let fence;
   for (const line of linesOutsideHtmlComments(changelog)) {
-    const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})/);
-    if (fenceMatch) {
-      const marker = fenceMatch[1][0];
-      if (!fence) fence = marker;
-      else if (fence === marker) fence = undefined;
+    if (fence) {
+      const closingFence = line.match(/^ {0,3}(`+|~+)[ \t]*$/);
+      if (closingFence && closingFence[1][0] === fence.marker && closingFence[1].length >= fence.length) {
+        fence = undefined;
+      }
       continue;
     }
-    if (fence) continue;
+    const openingFence = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    if (openingFence) {
+      const marker = openingFence[1][0];
+      if (marker === "~" || !openingFence[2].includes("`")) {
+        fence = { marker, length: openingFence[1].length };
+        continue;
+      }
+    }
     const heading = line.match(/^## ((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)) — (\d{4}-\d{2}-\d{2})\s*$/);
     if (heading) headings.push({ version: heading[1], date: heading[2] });
   }
@@ -72,9 +79,17 @@ function tarText(buffer, offset, length) {
 function tarFiles(archive) {
   const tar = gunzipSync(archive, { maxOutputLength: 16 * 1024 * 1024 });
   const files = new Map();
+  let terminated = false;
   for (let offset = 0; offset + 512 <= tar.length; ) {
     const header = tar.subarray(offset, offset + 512);
-    if (header.every((byte) => byte === 0)) break;
+    if (header.every((byte) => byte === 0)) {
+      assert.ok(
+        tar.subarray(offset).every((byte) => byte === 0),
+        "Tar archive contains data after its end marker.",
+      );
+      terminated = true;
+      break;
+    }
     const name = `${tarText(header, 345, 155)}${tarText(header, 345, 155) ? "/" : ""}${tarText(header, 0, 100)}`;
     assert.ok(name && !name.startsWith("/") && !name.split("/").includes(".."), `Unsafe tar entry: ${name}`);
     const sizeText = tarText(header, 124, 12).trim();
@@ -98,6 +113,7 @@ function tarFiles(archive) {
     else assert.equal(type, "5", `Unsupported tar entry type for ${name}.`);
     offset = contentStart + Math.ceil(size / 512) * 512;
   }
+  assert.equal(terminated, true, "Tar archive has no valid end marker.");
   return files;
 }
 
@@ -157,7 +173,7 @@ export async function validateReleaseMetadata({ root = repositoryRoot, tag } = {
   return version;
 }
 
-export async function validateReleaseBundle({ directory, version, sourceCommit }) {
+export async function validateReleaseBundle({ directory, version, sourceCommit, root = repositoryRoot }) {
   assert.match(version, semanticVersionPattern, "Release bundle version must be stable semantic versioning.");
   assert.match(sourceCommit, sourceCommitPattern, "Source commit must be a lowercase 40-character SHA.");
   const expectedFiles = releaseFileNames(version);
@@ -200,7 +216,7 @@ export async function validateReleaseBundle({ directory, version, sourceCommit }
   assert.ok(archive.byteLength > 1024, "CLI archive is unexpectedly small.");
   assert.deepEqual([...archive.subarray(0, 2)], [0x1f, 0x8b], "CLI archive is not gzip data.");
   const packagedFiles = tarFiles(archive);
-  for (const name of [
+  const expectedPackageFiles = [
     "package/package.json",
     "package/bin/dig.mjs",
     "package/src/client.mjs",
@@ -209,8 +225,21 @@ export async function validateReleaseBundle({ directory, version, sourceCommit }
     "package/CHANGELOG.md",
     "package/README.md",
     "package/SECURITY.md",
-  ]) {
-    assert.ok(packagedFiles.get(name)?.byteLength, `CLI archive is missing ${name}.`);
+  ].sort();
+  assert.deepEqual(
+    [...packagedFiles.keys()].sort(),
+    expectedPackageFiles,
+    "CLI archive contains missing, stale, or unexpected files.",
+  );
+  for (const name of expectedPackageFiles) {
+    const packaged = packagedFiles.get(name);
+    assert.ok(packaged?.byteLength, `CLI archive is empty: ${name}.`);
+    const sourcePath = name.replace(/^package\//, "");
+    assert.deepEqual(
+      packaged,
+      await readFile(resolve(root, sourcePath)),
+      `CLI archive content differs from the verified source: ${sourcePath}`,
+    );
   }
   const packagedMetadata = JSON.parse(packagedFiles.get("package/package.json").toString("utf8"));
   assert.equal(packagedMetadata.name, "dig-gopher-explorer", "CLI archive has the wrong package name.");
@@ -218,17 +247,18 @@ export async function validateReleaseBundle({ directory, version, sourceCommit }
   assert.equal(packagedMetadata.private, true, "The unlicensed CLI archive must remain private on npm.");
   assert.equal(packagedMetadata.license, "UNLICENSED", "CLI archive licensing metadata changed unexpectedly.");
   assert.equal(packagedMetadata.bin?.["dig-gopher"], "./bin/dig.mjs", "CLI archive has the wrong executable entry point.");
+  assert.equal(packagedMetadata.dependencies, undefined, "CLI archive unexpectedly declares runtime dependencies.");
   const sbom = JSON.parse(await readFile(resolve(directory, `dig-${version}.cdx.json`), "utf8"));
   assert.equal(sbom.bomFormat, "CycloneDX", "SBOM must use CycloneDX.");
   assert.match(sbom.specVersion, /^1\.[5-9]$/, "SBOM must use a supported CycloneDX specification.");
   assert.equal(sbom.metadata?.component?.version, version, "SBOM version does not match the release.");
   const expectedPurl = `pkg:npm/dig-gopher-explorer@${version}`;
   assert.equal(sbom.metadata?.component?.purl, expectedPurl, "SBOM root component does not identify DIG.");
-  assert.ok(Array.isArray(sbom.components), "SBOM must contain a component inventory.");
-  assert.ok(Array.isArray(sbom.dependencies), "SBOM must contain a dependency graph.");
-  assert.ok(
-    sbom.dependencies.some(({ ref }) => ref === sbom.metadata?.component?.["bom-ref"]),
-    "SBOM dependency graph must include its root component.",
+  assert.deepEqual(sbom.components, [], "SBOM must report the package's exact empty runtime component inventory.");
+  assert.deepEqual(
+    sbom.dependencies,
+    [{ ref: sbom.metadata?.component?.["bom-ref"], dependsOn: [] }],
+    "SBOM dependency graph must contain only the dependency-free root package.",
   );
   assert.equal(sbom.serialNumber, undefined, "Normalized SBOM must not contain a random serial number.");
   assert.equal(sbom.metadata?.timestamp, undefined, "Normalized SBOM must not contain a build timestamp.");
@@ -237,11 +267,7 @@ export async function validateReleaseBundle({ directory, version, sourceCommit }
   );
   assert.equal(dependencies.name, "dig-gopher-explorer", "Dependency evidence has the wrong package name.");
   assert.equal(dependencies.version, version, "Dependency evidence version does not match the release.");
-  assert.ok(
-    dependencies.dependencies === undefined ||
-      (dependencies.dependencies && typeof dependencies.dependencies === "object" && !Array.isArray(dependencies.dependencies)),
-    "Dependency evidence must contain an npm dependency map when dependencies exist.",
-  );
+  assert.equal(dependencies.dependencies, undefined, "npm dependency evidence unexpectedly contains runtime packages.");
 }
 
 export async function assembleReleaseBundle({
