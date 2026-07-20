@@ -8,11 +8,19 @@
   "bin": {
     "dig-gopher": "./bin/dig.mjs"
   },
+  "files": [
+    "bin",
+    "src",
+    "site/protocol.mjs",
+    "CHANGELOG.md",
+    "SECURITY.md"
+  ],
   "scripts": {
     "start": "node ./bin/dig.mjs --help",
     "test": "node --test",
     "check:site": "node ./scripts/validate-site.mjs",
-    "check": "npm test && npm run check:site"
+    "check:release": "node ./scripts/validate-release.mjs",
+    "check": "npm test && npm run check:site && npm run check:release"
   },
   "engines": {
     "node": ">=20"

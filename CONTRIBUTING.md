@@ -25,6 +25,10 @@ npm audit --omit=dev
 `npm run check` runs the Node test suite and validates the static site. If you edit a workflow, run
 [`actionlint`](https://github.com/rhysd/actionlint) locally when it is available.
 
+Release metadata must stay synchronized across `package.json`, `package-lock.json`, the CLI version
+output and `CHANGELOG.md`. Pull requests run the release-candidate workflow, but only a matching
+`v<version>` tag on the current reviewed `main` commit can publish a release.
+
 To exercise the CLI, use a server you are allowed to contact:
 
 ```bash

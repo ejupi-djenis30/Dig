@@ -7,7 +7,7 @@
 
   DIG is a small Gopher client for the terminal and an interactive protocol explorer for the web. The CLI opens real `gopher://` addresses. The public demo uses an included fixture because browsers cannot create raw TCP connections.
 
-  [Live protocol explorer](https://ejupi-djenis30.github.io/Dig/) · [Watch the demo](site/assets/demo.mp4) · [Run the CLI](#run-the-cli) · [Read the parser](site/protocol.mjs)
+  [Live protocol explorer](https://ejupi-djenis30.github.io/Dig/) · [Watch the demo](site/assets/demo.mp4) · [Run the CLI](#run-the-cli) · [Verify a release](#release-integrity) · [Read the parser](site/protocol.mjs)
 </div>
 
 ## What works
@@ -36,6 +36,19 @@ Use only servers you trust and are authorized to reach. The CLI makes a direct, 
 network connection to the host in the URL, including local or private addresses. Redirect binary
 items to a file; DIG refuses to print them directly to a terminal. The web demo never connects to
 a Gopher server.
+
+## Release integrity
+
+Every release candidate is built from a synchronized stable version, installed in a clean prefix,
+and smoke-tested through the published `dig-gopher` command. The release bundle contains the npm
+archive, a CycloneDX SBOM, dependency evidence, the exact source commit, release metadata and a
+complete `SHA256SUMS` manifest. Tagged releases are accepted only when the tag matches the project
+version and points to the current reviewed `main` commit. GitHub then attests the checksums, uploads
+the bundle to a draft release, verifies the remote inventory and digests, and publishes it only if
+every comparison succeeds.
+
+This integrity evidence does not grant a software license. The repository remains `UNLICENSED`
+until all contributors agree on licensing terms.
 
 ## Structure
 
