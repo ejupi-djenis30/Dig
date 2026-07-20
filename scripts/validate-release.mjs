@@ -3,10 +3,77 @@ import { createHash } from "node:crypto";
 import { copyFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { gunzipSync } from "node:zlib";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const semanticVersionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const sourceCommitPattern = /^[0-9a-f]{40}$/;
+
+function releaseHeadings(changelog) {
+  const withoutComments = changelog.replace(/<!--[\s\S]*?-->/g, "");
+  const headings = [];
+  let fence;
+  for (const line of withoutComments.split(/\r?\n/)) {
+    const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})/);
+    if (fenceMatch) {
+      const marker = fenceMatch[1][0];
+      if (!fence) fence = marker;
+      else if (fence === marker) fence = undefined;
+      continue;
+    }
+    if (fence) continue;
+    const heading = line.match(/^## ((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)) — (\d{4}-\d{2}-\d{2})\s*$/);
+    if (heading) headings.push({ version: heading[1], date: heading[2] });
+  }
+  return headings;
+}
+
+function isCalendarDate(value) {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+}
+
+function tarText(buffer, offset, length) {
+  const end = buffer.indexOf(0, offset);
+  return buffer.subarray(offset, end === -1 || end > offset + length ? offset + length : end).toString("utf8");
+}
+
+function tarFiles(archive) {
+  const tar = gunzipSync(archive, { maxOutputLength: 16 * 1024 * 1024 });
+  const files = new Map();
+  for (let offset = 0; offset + 512 <= tar.length; ) {
+    const header = tar.subarray(offset, offset + 512);
+    if (header.every((byte) => byte === 0)) break;
+    const name = `${tarText(header, 345, 155)}${tarText(header, 345, 155) ? "/" : ""}${tarText(header, 0, 100)}`;
+    assert.ok(name && !name.startsWith("/") && !name.split("/").includes(".."), `Unsafe tar entry: ${name}`);
+    const sizeText = tarText(header, 124, 12).trim();
+    assert.match(sizeText, /^[0-7]+$/, `Invalid tar entry size: ${name}`);
+    const size = Number.parseInt(sizeText, 8);
+    assert.ok(Number.isSafeInteger(size) && size >= 0, `Invalid tar entry size: ${name}`);
+    const checksumText = tarText(header, 148, 8).trim();
+    assert.match(checksumText, /^[0-7]+$/, `Invalid tar header checksum: ${name}`);
+    const checksumHeader = Buffer.from(header);
+    checksumHeader.fill(0x20, 148, 156);
+    const checksum = checksumHeader.reduce((sum, byte) => sum + byte, 0);
+    assert.equal(checksum, Number.parseInt(checksumText, 8), `Tar header checksum mismatch: ${name}`);
+    const type = String.fromCharCode(header[156] || 0);
+    const contentStart = offset + 512;
+    const contentEnd = contentStart + size;
+    assert.ok(contentEnd <= tar.length, `Truncated tar entry: ${name}`);
+    if (type === "\0" || type === "0") {
+      assert.ok(!files.has(name), `Duplicate tar entry: ${name}`);
+      files.set(name, tar.subarray(contentStart, contentEnd));
+    }
+    else assert.equal(type, "5", `Unsupported tar entry type for ${name}.`);
+    offset = contentStart + Math.ceil(size / 512) * 512;
+  }
+  return files;
+}
 
 function confinedPath(root, child) {
   const candidate = resolve(root, child);
@@ -43,7 +110,9 @@ export function validateVersionTexts({ packageJson, packageLockJson, changelog, 
   assert.equal(packageMetadata.license, "UNLICENSED", "Package licensing metadata changed unexpectedly.");
   assert.equal(lockMetadata.version, version, "package-lock.json must match package.json.");
   assert.equal(lockMetadata.packages?.[""]?.version, version, "The lockfile root version must match package.json.");
-  assert.ok(changelog.includes(`## ${version} —`), `CHANGELOG.md must contain a dated ${version} heading.`);
+  const matchingHeadings = releaseHeadings(changelog).filter((heading) => heading.version === version);
+  assert.equal(matchingHeadings.length, 1, `CHANGELOG.md must contain one real, dated ${version} heading.`);
+  assert.ok(isCalendarDate(matchingHeadings[0].date), `CHANGELOG.md contains an invalid date for ${version}.`);
   assert.ok(cli.includes(`process.stdout.write("DIG ${version}\\n")`), "The CLI version must match package.json.");
   if (tag !== undefined) assert.equal(tag, `v${version}`, `Release tag must be exactly v${version}.`);
   return version;
@@ -99,17 +168,51 @@ export async function validateReleaseBundle({ directory, version, sourceCommit }
   });
 
   const archive = await readFile(resolve(directory, `dig-gopher-explorer-${version}.tgz`));
-  assert.ok(archive.byteLength > 2, "CLI archive is unexpectedly small.");
+  assert.ok(archive.byteLength > 1024, "CLI archive is unexpectedly small.");
   assert.deepEqual([...archive.subarray(0, 2)], [0x1f, 0x8b], "CLI archive is not gzip data.");
+  const packagedFiles = tarFiles(archive);
+  for (const name of [
+    "package/package.json",
+    "package/bin/dig.mjs",
+    "package/src/client.mjs",
+    "package/src/output.mjs",
+    "package/site/protocol.mjs",
+    "package/CHANGELOG.md",
+    "package/README.md",
+    "package/SECURITY.md",
+  ]) {
+    assert.ok(packagedFiles.get(name)?.byteLength, `CLI archive is missing ${name}.`);
+  }
+  const packagedMetadata = JSON.parse(packagedFiles.get("package/package.json").toString("utf8"));
+  assert.equal(packagedMetadata.name, "dig-gopher-explorer", "CLI archive has the wrong package name.");
+  assert.equal(packagedMetadata.version, version, "CLI archive version does not match the release.");
+  assert.equal(packagedMetadata.private, true, "The unlicensed CLI archive must remain private on npm.");
+  assert.equal(packagedMetadata.license, "UNLICENSED", "CLI archive licensing metadata changed unexpectedly.");
+  assert.equal(packagedMetadata.bin?.["dig-gopher"], "./bin/dig.mjs", "CLI archive has the wrong executable entry point.");
   const sbom = JSON.parse(await readFile(resolve(directory, `dig-${version}.cdx.json`), "utf8"));
   assert.equal(sbom.bomFormat, "CycloneDX", "SBOM must use CycloneDX.");
+  assert.match(sbom.specVersion, /^1\.[5-9]$/, "SBOM must use a supported CycloneDX specification.");
   assert.equal(sbom.metadata?.component?.version, version, "SBOM version does not match the release.");
+  const expectedPurl = `pkg:npm/dig-gopher-explorer@${version}`;
+  assert.equal(sbom.metadata?.component?.purl, expectedPurl, "SBOM root component does not identify DIG.");
+  assert.ok(Array.isArray(sbom.components), "SBOM must contain a component inventory.");
+  assert.ok(Array.isArray(sbom.dependencies), "SBOM must contain a dependency graph.");
+  assert.ok(
+    sbom.dependencies.some(({ ref }) => ref === sbom.metadata?.component?.["bom-ref"]),
+    "SBOM dependency graph must include its root component.",
+  );
   assert.equal(sbom.serialNumber, undefined, "Normalized SBOM must not contain a random serial number.");
   assert.equal(sbom.metadata?.timestamp, undefined, "Normalized SBOM must not contain a build timestamp.");
   const dependencies = JSON.parse(
     await readFile(resolve(directory, `dig-npm-dependencies-${version}.json`), "utf8"),
   );
+  assert.equal(dependencies.name, "dig-gopher-explorer", "Dependency evidence has the wrong package name.");
   assert.equal(dependencies.version, version, "Dependency evidence version does not match the release.");
+  assert.ok(
+    dependencies.dependencies === undefined ||
+      (dependencies.dependencies && typeof dependencies.dependencies === "object" && !Array.isArray(dependencies.dependencies)),
+    "Dependency evidence must contain an npm dependency map when dependencies exist.",
+  );
 }
 
 export async function assembleReleaseBundle({
