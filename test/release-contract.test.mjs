@@ -183,10 +183,45 @@ test("version validation uses top-level CommonMark H2 sections and real list not
     "** **",
     "[ ](https://example.test/release \"link title\")",
     "` `",
+    "\u200B",
+    "&#x200B;",
+    "`\u200B`",
+    "\u2060",
+    "&#x2060;",
+    "`\u2060`",
+    "\u115F",
+    "&#x115F;",
+    "`\u115F`",
+    "\u1160",
+    "&#x1160;",
+    "`\u1160`",
+    "\u3164",
+    "&#x3164;",
+    "`\u3164`",
+    "\uFFA0",
+    "&#xFFA0;",
+    "`\uFFA0`",
+    "...",
+    "<https://example.test/releases/2.1.1>",
+    "https://example.test/releases/2.1.1",
+    "ｈｔｔｐｓ：／／example.test/releases/2.1.1",
+    "gopher://example.test/1/releases",
+    "www.example.test/releases/2.1.1",
   ]) {
     assert.throws(
       () => validateVersionTexts({ ...base, changelog: `## ${VERSION} — 2026-07-20\n\n- ${note}` }),
       /visible non-whitespace text/,
+    );
+  }
+  for (const note of [
+    "Released https://example.test/releases/2.1.1",
+    "See <https://example.test/releases/2.1.1> for details",
+    "[Release notes](https://example.test/releases/2.1.1)",
+    "**Released** with `verified artifacts`",
+  ]) {
+    assert.equal(
+      validateVersionTexts({ ...base, changelog: `## ${VERSION} — 2026-07-20\n\n- ${note}` }),
+      VERSION,
     );
   }
   const section = parseChangelogSections(

@@ -18,6 +18,8 @@ const releaseTooling = {
 };
 
 const markdownParser = unified().use(remarkParse);
+const invisibleTextPattern = /[\p{Cf}\u115F\u1160\u3164\uFFA0]/gu;
+const standaloneUrlPattern = /\b(?:[a-z][a-z\d+.-]*:\/\/|www\.)[^\s<>{}\[\]]+/giu;
 
 function visibleMarkdownText(node) {
   if (["text", "inlineCode", "code"].includes(node.type)) return node.value;
@@ -25,8 +27,16 @@ function visibleMarkdownText(node) {
   return Array.isArray(node.children) ? node.children.map(visibleMarkdownText).join("") : "";
 }
 
+function hasGenuineVisibleText(node) {
+  const textWithoutUrls = visibleMarkdownText(node)
+    .normalize("NFKC")
+    .replace(invisibleTextPattern, "")
+    .replace(standaloneUrlPattern, " ");
+  return /[\p{L}\p{N}]/u.test(textWithoutUrls);
+}
+
 function hasVisibleListItem(node) {
-  if (node.type === "listItem" && visibleMarkdownText(node).trim() !== "") return true;
+  if (node.type === "listItem" && hasGenuineVisibleText(node)) return true;
   return Array.isArray(node.children) && node.children.some(hasVisibleListItem);
 }
 
