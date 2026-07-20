@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.1.3 — 2026-07-20
+
+- Reconfirm a newly created GitHub draft by its unique ID with bounded backoff before uploading.
+- Fail closed when draft visibility times out or GitHub returns duplicate, conflicting, or non-empty state.
+
 ## 2.1.2 — 2026-07-20
 
 - Use one UTF-8 byte-ordering rule to generate and verify release checksum manifests.
