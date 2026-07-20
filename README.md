@@ -39,8 +39,10 @@ a Gopher server.
 
 ## Release integrity
 
-Every release candidate is built from a synchronized stable version, installed in a clean prefix,
-and smoke-tested through the published `dig-gopher` command. The release bundle contains the npm
+Every release candidate is built twice from a synchronized stable version and the resulting
+archives must be byte-for-byte identical. It is then installed in a clean prefix and smoke-tested
+through the published `dig-gopher` command. Volatile SBOM metadata is removed and two independently
+generated documents must also match byte for byte. The release bundle contains the npm
 archive, a CycloneDX SBOM, dependency evidence, the exact source commit, release metadata and a
 complete `SHA256SUMS` manifest. Tagged releases are accepted only when the tag matches the project
 version and points to the current reviewed `main` commit. GitHub then attests the checksums, uploads

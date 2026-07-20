@@ -72,10 +72,13 @@ jobs:
           VERSION: ${{ steps.metadata.outputs.version }}
         run: |
           set -euo pipefail
-          mkdir -p target/package target/install
-          npm pack --ignore-scripts --pack-destination target/package
-          archive="target/package/dig-gopher-explorer-${VERSION}.tgz"
+          mkdir -p target/package-a target/package-b target/install
+          npm pack --ignore-scripts --pack-destination target/package-a
+          npm pack --ignore-scripts --pack-destination target/package-b
+          archive="target/package-a/dig-gopher-explorer-${VERSION}.tgz"
+          comparison_archive="target/package-b/dig-gopher-explorer-${VERSION}.tgz"
           [[ -f "${archive}" ]]
+          cmp "${archive}" "${comparison_archive}"
           npm install --ignore-scripts --global --prefix target/install "./${archive}"
           [[ "$(target/install/bin/dig-gopher --version)" == "DIG ${VERSION}" ]]
           printf 'archive=%s\n' "${archive}" >> "${GITHUB_OUTPUT}"
@@ -86,8 +89,15 @@ jobs:
           VERSION: ${{ steps.metadata.outputs.version }}
         run: |
           set -euo pipefail
-          npm sbom --omit=dev --sbom-format cyclonedx > "target/dig-${VERSION}.cdx.json"
+          npm sbom --omit=dev --sbom-format cyclonedx > target/sbom-a.raw.json
+          sleep 1
+          npm sbom --omit=dev --sbom-format cyclonedx > target/sbom-b.raw.json
+          node scripts/normalize-sbom.mjs target/sbom-a.raw.json "target/dig-${VERSION}.cdx.json"
+          node scripts/normalize-sbom.mjs target/sbom-b.raw.json target/sbom-b.cdx.json
+          cmp "target/dig-${VERSION}.cdx.json" target/sbom-b.cdx.json
           npm ls --omit=dev --all --json > "target/dig-npm-dependencies-${VERSION}.json"
+          npm ls --omit=dev --all --json > target/dependencies-b.json
+          cmp "target/dig-npm-dependencies-${VERSION}.json" target/dependencies-b.json
 
       - name: Assemble and reverify release bundle
         shell: bash

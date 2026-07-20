@@ -104,6 +104,8 @@ export async function validateReleaseBundle({ directory, version, sourceCommit }
   const sbom = JSON.parse(await readFile(resolve(directory, `dig-${version}.cdx.json`), "utf8"));
   assert.equal(sbom.bomFormat, "CycloneDX", "SBOM must use CycloneDX.");
   assert.equal(sbom.metadata?.component?.version, version, "SBOM version does not match the release.");
+  assert.equal(sbom.serialNumber, undefined, "Normalized SBOM must not contain a random serial number.");
+  assert.equal(sbom.metadata?.timestamp, undefined, "Normalized SBOM must not contain a build timestamp.");
   const dependencies = JSON.parse(
     await readFile(resolve(directory, `dig-npm-dependencies-${version}.json`), "utf8"),
   );

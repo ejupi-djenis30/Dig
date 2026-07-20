@@ -11,6 +11,7 @@ import {
   validateReleaseMetadata,
   validateVersionTexts,
 } from "../scripts/validate-release.mjs";
+import { normalizeCycloneDx } from "../scripts/normalize-sbom.mjs";
 
 const VERSION = "2.1.1";
 const COMMIT = "a".repeat(40);
@@ -31,6 +32,24 @@ test("version validation rejects drift and npm publication", () => {
   assert.equal(validateVersionTexts(base), VERSION);
   assert.throws(() => validateVersionTexts({ ...base, packageJson: JSON.stringify({ name: "dig-gopher-explorer", version: VERSION, private: false, license: "UNLICENSED" }) }), /private/);
   assert.throws(() => validateVersionTexts({ ...base, cli: 'process.stdout.write("DIG 9.9.9\\n")' }), /CLI version/);
+});
+
+test("SBOM normalization removes volatile metadata and canonicalizes object keys", () => {
+  const first = normalizeCycloneDx({
+    serialNumber: "urn:uuid:first",
+    metadata: { timestamp: "2026-07-20T01:00:00Z", component: { version: VERSION, name: "dig" } },
+    specVersion: "1.6",
+    bomFormat: "CycloneDX",
+  });
+  const second = normalizeCycloneDx({
+    bomFormat: "CycloneDX",
+    specVersion: "1.6",
+    metadata: { component: { name: "dig", version: VERSION }, timestamp: "2026-07-20T02:00:00Z" },
+    serialNumber: "urn:uuid:second",
+  });
+  assert.deepEqual(first, second);
+  assert.equal(first.serialNumber, undefined);
+  assert.equal(first.metadata.timestamp, undefined);
 });
 
 test("release bundle has exact inventory, source binding, and checksums", async () => {
