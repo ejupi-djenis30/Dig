@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 const root = new URL("../site/", import.meta.url);
 const html = await readFile(new URL("index.html", root), "utf8");
+const styles = await readFile(new URL("styles.css", root), "utf8");
 const manifest = JSON.parse(await readFile(new URL("manifest.webmanifest", root), "utf8"));
 const expectedCsp = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; media-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'";
 const socialPreviewUrl = "https://ejupi-djenis30.github.io/Dig/assets/social-preview.png";
@@ -11,6 +12,17 @@ for (const fragment of ["styles.css", "app.mjs", "protocol.mjs", "manifest.webma
 }
 for (const required of ['lang="en"', "<title>", "<main", "aria-label", "Fixture mode", 'rel="manifest"', 'rel="apple-touch-icon" href="assets/dig-mark-192.png"', "readonly", '<meta name="referrer" content="no-referrer" />', 'http-equiv="Content-Security-Policy"', `content="${expectedCsp}"`, `property="og:image" content="${socialPreviewUrl}"`, 'property="og:image:width" content="1200"', 'property="og:image:height" content="675"', "property=\"og:image:alt\"", 'name="twitter:card" content="summary_large_image"', `name="twitter:image" content="${socialPreviewUrl}"`, 'name="twitter:image:alt"']) {
   if (!html.includes(required)) throw new Error(`index.html is missing ${required}`);
+}
+const skipLink = '<a class="skip-link" href="#main-content">Skip to content</a>';
+if (!html.includes(skipLink)) throw new Error("index.html is missing the skip link.");
+if (!html.includes('<main id="main-content" tabindex="-1">')) {
+  throw new Error("The skip-link target must be the focusable main landmark.");
+}
+if (html.indexOf(skipLink) > html.indexOf('<header class="header">')) {
+  throw new Error("The skip link must appear before the repeated header.");
+}
+for (const required of [".skip-link {", ".skip-link:focus-visible {"]) {
+  if (!styles.includes(required)) throw new Error(`styles.css is missing ${required}`);
 }
 const requiredRasterIcons = new Map([
   ["192x192", "assets/dig-mark-192.png"],
