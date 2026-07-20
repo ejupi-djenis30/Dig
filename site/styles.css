@@ -179,7 +179,7 @@ h1 em { color: var(--orange); font-family: Georgia, serif; font-weight: 400; }
 .packet-node-top { top: 17%; }
 .packet-node-bottom { bottom: 17%; }
 .packet-node-left,
-.packet-node-right { top: 42.5%; width: 27%; }
+.packet-node-right { top: 50%; width: 27%; transform: translateY(-50%); }
 .packet-node-left { left: 6%; }
 .packet-node-right { right: 6%; }
 .packet-core {
@@ -291,6 +291,7 @@ footer a { justify-self: end; color: var(--ink); font-weight: 800; }
   .packet-art { width: 100%; }
   .packet-art::before { inset: 10%; }
   .packet-node, .packet-core { border-radius: .75rem; }
+  .packet-node-left, .packet-node-right { padding-inline: .45rem; }
   .section-intro h2, .history h2 { font-size: clamp(2.8rem,14vw,4.1rem); }
   .browser-bar { grid-template-columns: auto minmax(0,1fr); padding: .8rem; }
   .mode { grid-column: 2; }
