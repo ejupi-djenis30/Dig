@@ -7,6 +7,8 @@ const styles = await readFile(new URL("styles.css", root), "utf8");
 const app = await readFile(new URL("app.mjs", root), "utf8");
 const serviceWorker = await readFile(new URL("sw.js", root), "utf8");
 const packageMetadata = JSON.parse(await readFile(new URL("package.json", repositoryRoot), "utf8"));
+const packageLock = JSON.parse(await readFile(new URL("package-lock.json", repositoryRoot), "utf8"));
+const changelog = await readFile(new URL("CHANGELOG.md", repositoryRoot), "utf8");
 const manifest = JSON.parse(await readFile(new URL("manifest.webmanifest", root), "utf8"));
 const expectedCsp = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; media-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'";
 const socialPreviewUrl = "https://ejupi-djenis30.github.io/Dig/assets/social-preview.png";
@@ -29,6 +31,12 @@ for (const required of [".skip-link {", ".skip-link:focus-visible {"]) {
 }
 const releaseVersion = packageMetadata.version;
 if (!/^\d+\.\d+\.\d+$/.test(releaseVersion)) throw new Error("package.json needs a stable semantic version.");
+if (packageLock.version !== releaseVersion || packageLock.packages?.[""]?.version !== releaseVersion) {
+  throw new Error(`package-lock.json must match package version ${releaseVersion}.`);
+}
+if (!changelog.includes(`## ${releaseVersion} —`)) {
+  throw new Error(`CHANGELOG.md must document package version ${releaseVersion}.`);
+}
 for (const asset of ["styles.css", "app.mjs"]) {
   if (!html.includes(`${asset}?v=${releaseVersion}`)) {
     throw new Error(`index.html must cache-bust ${asset} with package version ${releaseVersion}.`);

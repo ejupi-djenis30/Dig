@@ -22,15 +22,20 @@ test("the skip link has a visible keyboard-focus state and a usable target size"
 });
 
 test("site assets and the service-worker cache roll over with every release", async () => {
-  const [html, app, serviceWorker, packageMetadata] = await Promise.all([
+  const [html, app, serviceWorker, packageMetadata, packageLock, changelog] = await Promise.all([
     readFile(new URL("index.html", siteRoot), "utf8"),
     readFile(new URL("app.mjs", siteRoot), "utf8"),
     readFile(new URL("sw.js", siteRoot), "utf8"),
     readFile(new URL("package.json", repositoryRoot), "utf8").then(JSON.parse),
+    readFile(new URL("package-lock.json", repositoryRoot), "utf8").then(JSON.parse),
+    readFile(new URL("CHANGELOG.md", repositoryRoot), "utf8"),
   ]);
   const version = packageMetadata.version;
 
   assert.match(version, /^\d+\.\d+\.\d+$/);
+  assert.equal(packageLock.version, version);
+  assert.equal(packageLock.packages[""].version, version);
+  assert.ok(changelog.includes(`## ${version} —`));
   assert.ok(html.includes(`styles.css?v=${version}`));
   assert.ok(html.includes(`app.mjs?v=${version}`));
   assert.ok(app.includes(`./sw.js?v=${version}`));
