@@ -4,6 +4,7 @@ import { copyFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/pro
 import { relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
+import { validateReleaseWorkflowText } from "./validate-release-workflow.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const semanticVersionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
@@ -119,13 +120,16 @@ export function validateVersionTexts({ packageJson, packageLockJson, changelog, 
 }
 
 export async function validateReleaseMetadata({ root = repositoryRoot, tag } = {}) {
-  const [packageJson, packageLockJson, changelog, cli] = await Promise.all([
+  const [packageJson, packageLockJson, changelog, cli, workflow] = await Promise.all([
     readFile(resolve(root, "package.json"), "utf8"),
     readFile(resolve(root, "package-lock.json"), "utf8"),
     readFile(resolve(root, "CHANGELOG.md"), "utf8"),
     readFile(resolve(root, "bin/dig.mjs"), "utf8"),
+    readFile(resolve(root, ".github/workflows/release.yml"), "utf8"),
   ]);
-  return validateVersionTexts({ packageJson, packageLockJson, changelog, cli, tag });
+  const version = validateVersionTexts({ packageJson, packageLockJson, changelog, cli, tag });
+  validateReleaseWorkflowText(workflow);
+  return version;
 }
 
 export async function validateReleaseBundle({ directory, version, sourceCommit }) {
