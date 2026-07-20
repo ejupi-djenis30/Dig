@@ -58,6 +58,10 @@ test("release workflow YAML AST rejects duplicate, shadow, alias, tag, and unsup
 
 test("release workflow triggers and permissions are semantic exact mappings", () => {
   rejects(replaceOnce(workflow, "  pull_request:\n", "  pull_request_target:\n"), /missing, extra, or shadow keys/);
+  rejects(
+    replaceOnce(workflow, "  pull_request:\n", "  pull_request:\n    paths:\n      - 'src/**'\n"),
+    /must be a scalar|must remain unfiltered/,
+  );
   rejects(replaceOnce(workflow, "on:\n  pull_request:", "on: [pull_request, push]"), /invalid YAML|must be a mapping/);
   rejects(
     replaceOnce(workflow, "  workflow_dispatch:\n", "  schedule:\n    - cron: '0 0 * * *'\n  workflow_dispatch:\n"),
@@ -93,6 +97,12 @@ test("every uses node is AST-discovered and pinned across scalar and mapping for
   for (const mutated of [
     replaceOnce(workflow, checkout, "actions/checkout@main"),
     replaceOnce(workflow, checkout, `actions/checkout@${"A".repeat(40)}`),
+    replaceOnce(workflow, checkout, `attacker/checkout@${"a".repeat(40)}`),
+    replaceOnce(
+      workflow,
+      "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      `attacker/upload-artifact@${"b".repeat(40)}`,
+    ),
     replaceOnce(workflow, `uses: ${checkout}`, `\"uses\": \"actions/checkout@main\"`),
     replaceOnce(workflow, `uses: ${checkout}`, `\"u\\u0073es\": \"actions/checkout@main\"`),
     replaceOnce(workflow, `uses: ${checkout}`, "uses: >-\n          actions/checkout@main"),
@@ -104,23 +114,39 @@ test("every uses node is AST-discovered and pinned across scalar and mapping for
     `${workflow}\n  reusable-shadow:\n    uses: attacker/repository/.github/workflows/release.yml@main\n`,
     replaceOnce(workflow, checkout, "docker://alpine:latest"),
     replaceOnce(workflow, checkout, `owner/repository/../action@${"a".repeat(40)}`),
-  ]) rejects(mutated, /lowercase 40-character commit SHA|unsafe remote action path|missing, extra, or shadow keys/);
+  ]) rejects(mutated, /lowercase 40-character commit SHA|unsafe remote action path|missing, extra, or shadow keys|action owner, repository, SHA, or order/);
 
-  const local = replaceOnce(workflow, checkout, "./.github/actions/trusted");
-  rejects(local, /unapproved local action/);
-  validateReleaseWorkflowText(local, { allowedLocalActions: ["./.github/actions/trusted"] });
-  rejects(
-    replaceOnce(workflow, checkout, "./.github/actions/../untrusted"),
-    /unsafe local action path|unapproved local action/,
-  );
+  rejects(replaceOnce(workflow, checkout, "./.github/actions/trusted"), /local actions are forbidden/);
+  rejects(replaceOnce(workflow, checkout, "./../untrusted/action"), /local actions are forbidden/);
+  rejects(replaceOnce(workflow, checkout, "../untrusted/action"), /local actions are forbidden/);
 });
 
-test("release workflow binds tag ancestry, toolchains, authorization, and publication order", () => {
+test("release workflow exact-contract binds actions, run blocks, gates, and publication order", () => {
   rejects(replaceOnce(workflow, "runs-on: ubuntu-24.04", "runs-on: ubuntu-latest"), /Build runner changed unexpectedly/);
-  rejects(replaceOnce(workflow, 'node-version: "22.23.1"', 'node-version: "22"'), /Node\.js version changed unexpectedly/);
+  rejects(replaceOnce(workflow, 'node-version: "22.23.1"', 'node-version: "22"'), /node-version changed unexpectedly/);
+  rejects(
+    replaceOnce(workflow, "          persist-credentials: false", "          persist-credentials: false\n          path: foreign"),
+    /missing, extra, or shadow keys/,
+  );
+  rejects(
+    replaceOnce(
+      workflow,
+      "DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}",
+      "DEFAULT_BRANCH: ${{ github.base_ref }}",
+    ),
+    /DEFAULT_BRANCH changed unexpectedly/,
+  );
+  rejects(
+    replaceOnce(workflow, "GH_TOKEN: ${{ github.token }}", "GH_TOKEN: ${{ secrets.FOREIGN_TOKEN }}"),
+    /GH_TOKEN changed unexpectedly/,
+  );
   rejects(
     replaceOnce(workflow, "npm audit --audit-level=moderate", "npm audit --omit=dev --audit-level=moderate"),
-    /audit all dependencies|must not omit release parser tooling/,
+    /Test and audit all dependencies.*run changed unexpectedly/,
+  );
+  rejects(
+    replaceOnce(workflow, "npm audit --audit-level=moderate", "npm audit --audit-level=moderate || true"),
+    /Test and audit all dependencies.*run changed unexpectedly/,
   );
   rejects(
     replaceOnce(
@@ -128,7 +154,7 @@ test("release workflow binds tag ancestry, toolchains, authorization, and public
       'git merge-base --is-ancestor "${source_commit}" "${default_head}"',
       '[[ "${source_commit}" == "${default_head}" ]]',
     ),
-    /must require tagged-source containment|allow safe recovery/,
+    /Validate synchronized release metadata and source.*run changed unexpectedly/,
   );
   rejects(
     replaceLast(
@@ -136,24 +162,60 @@ test("release workflow binds tag ancestry, toolchains, authorization, and public
       'git merge-base --is-ancestor "${source_commit}" "${default_head}"',
       '[[ "${source_commit}" == "${default_head}" ]]',
     ),
-    /must require tagged-source containment|allow safe recovery/,
+    /Reverify tag, default-branch source, inventory, and checksums.*run changed unexpectedly/,
   );
   rejects(
     replaceOnce(workflow, '[[ "${source_commit}" == "$(git rev-parse HEAD)" ]]', "true"),
-    /bind the checkout to the tag commit/,
+    /Validate synchronized release metadata and source.*run changed unexpectedly/,
   );
   rejects(replaceOnce(workflow, 'RELEASE_PUBLICATION_ENABLED: "false"', 'RELEASE_PUBLICATION_ENABLED: "true"'), /changed unexpectedly/);
-  rejects(replaceOnce(workflow, "name: Enforce release authorization gate", "name: Authorization removed"), /authorization gate/);
-  rejects(replaceOnce(workflow, "-f LICENSE.txt", "-e LICENSE.txt"), /must check LICENSE\.txt/);
-  rejects(replaceOnce(workflow, "! -L LICENSE.txt", "! -d LICENSE.txt"), /reject a symlinked LICENSE\.txt/);
-  rejects(replaceOnce(workflow, "sha256sum --check --strict", "sha256sum --check"), /checksum-verified/);
+  rejects(replaceOnce(workflow, "name: Enforce static publication approval", "name: Authorization removed"), /name changed unexpectedly/);
+  rejects(replaceOnce(workflow, "-f LICENSE.txt", "-e LICENSE.txt"), /Enforce checked-in license.*run changed unexpectedly/);
+  rejects(replaceOnce(workflow, "! -L LICENSE.txt", "! -d LICENSE.txt"), /Enforce checked-in license.*run changed unexpectedly/);
+  rejects(replaceOnce(workflow, "sha256sum --check --strict", "sha256sum --check"), /Install verified GitHub CLI.*run changed unexpectedly/);
+  rejects(
+    replaceOnce(
+      workflow,
+      '[[ "${RELEASE_PUBLICATION_ENABLED}" == "true" ]] || {',
+      '[[ "${RELEASE_PUBLICATION_ENABLED}" == "true" ]] || true || {',
+    ),
+    /Enforce static publication approval.*run changed unexpectedly/,
+  );
+  rejects(
+    replaceOnce(
+      workflow,
+      "      - name: Enforce static publication approval\n        shell: bash",
+      "      - name: Enforce static publication approval\n        continue-on-error: true\n        shell: bash",
+    ),
+    /missing, extra, or shadow keys/,
+  );
+  rejects(
+    replaceOnce(
+      workflow,
+      "      - name: Enforce static publication approval\n        shell: bash",
+      "      - name: Enforce static publication approval\n        if: always()\n        shell: bash",
+    ),
+    /missing, extra, or shadow keys/,
+  );
+  rejects(
+    replaceOnce(
+      workflow,
+      "      - name: Enforce checked-in license\n        shell: bash",
+      "      - name: Enforce checked-in license\n        continue-on-error: true\n        shell: bash",
+    ),
+    /missing, extra, or shadow keys/,
+  );
+  rejects(
+    replaceOnce(workflow, "      - name: Enforce static publication approval", "      - name: Check out tagged source"),
+    /name changed unexpectedly/,
+  );
   rejects(
     replaceOnce(workflow, "subject-path: release/SHA256SUMS", "subject-path: release/release-metadata.json"),
-    /Manifest attestation subject changed unexpectedly/,
+    /subject-path changed unexpectedly/,
   );
   const moved = workflow
     .replace("node scripts/verify-attestations.mjs", "node scripts/__swap.mjs")
     .replace("node scripts/publish-release.mjs", "node scripts/verify-attestations.mjs")
     .replace("node scripts/__swap.mjs", "node scripts/publish-release.mjs");
-  rejects(moved, /missing binding|publication|reviewed verifier/i);
+  rejects(moved, /run changed unexpectedly/i);
 });

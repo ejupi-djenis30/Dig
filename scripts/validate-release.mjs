@@ -32,9 +32,17 @@ function sourceSlice(markdown, node) {
   return markdown.slice(start, end);
 }
 
+function rejectStructuralHtml(node) {
+  if (node.type === "html" && /<\/?[A-Za-z][^>]*>/.test(node.value)) {
+    assert.fail("CHANGELOG.md must not contain structural HTML wrappers.");
+  }
+  if (Array.isArray(node.children)) node.children.forEach(rejectStructuralHtml);
+}
+
 export function parseChangelogSections(changelog) {
   const tree = markdownParser.parse(changelog);
   assert.equal(tree.type, "root", "CHANGELOG.md did not produce a CommonMark document root.");
+  rejectStructuralHtml(tree);
   const sections = [];
   const headings = tree.children.flatMap((node, index) => node.type === "heading" && node.depth === 2
     ? [{ node, index }]

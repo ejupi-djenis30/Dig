@@ -3,7 +3,215 @@ import assert from "node:assert/strict";
 import { isAlias, isMap, isScalar, isSeq, parseAllDocuments } from "yaml";
 
 const remoteUsePattern = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*@[0-9a-f]{40}$/;
-const localUsePattern = /^\.\/(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9_.\/-]+$/;
+
+const actions = Object.freeze({
+  checkout: "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0",
+  setupNode: "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+  uploadArtifact: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+  downloadArtifact: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+  attest: "actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6",
+});
+
+function block(...lines) {
+  return `${lines.join("\n")}\n`;
+}
+
+const runs = Object.freeze({
+  toolchain: block(
+    "set -euo pipefail",
+    '[[ "$(node --version)" == "v22.23.1" ]]',
+    '[[ "$(npm --version)" == "10.9.8" ]]',
+  ),
+  install: "npm ci --ignore-scripts",
+  metadata: block(
+    "set -euo pipefail",
+    "arguments=()",
+    'if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then',
+    '  source_commit="$(git rev-parse "${GITHUB_REF_NAME}^{commit}")"',
+    '  [[ "${source_commit}" == "$(git rev-parse HEAD)" ]]',
+    '  git fetch --no-tags origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"',
+    '  default_head="$(git rev-parse "refs/remotes/origin/${DEFAULT_BRANCH}^{commit}")"',
+    '  git merge-base --is-ancestor "${source_commit}" "${default_head}"',
+    '  arguments+=(--tag "${GITHUB_REF_NAME}")',
+    'elif [[ -n "${EXPECTED_TAG}" ]]; then',
+    '  arguments+=(--tag "${EXPECTED_TAG}")',
+    "fi",
+    'version="$(node scripts/validate-release.mjs "${arguments[@]}")"',
+    'printf \'version=%s\\n\' "${version}" >> "${GITHUB_OUTPUT}"',
+  ),
+  testAndAudit: block(
+    "npm run check",
+    "npm audit --audit-level=moderate",
+  ),
+  package: block(
+    "set -euo pipefail",
+    "mkdir -p target/package-a target/package-b target/install",
+    "npm pack --ignore-scripts --pack-destination target/package-a",
+    "npm pack --ignore-scripts --pack-destination target/package-b",
+    'archive="target/package-a/dig-gopher-explorer-${VERSION}.tgz"',
+    'comparison_archive="target/package-b/dig-gopher-explorer-${VERSION}.tgz"',
+    '[[ -f "${archive}" ]]',
+    'cmp "${archive}" "${comparison_archive}"',
+    'npm install --ignore-scripts --global --prefix target/install "./${archive}"',
+    '[[ "$(target/install/bin/dig-gopher --version)" == "DIG ${VERSION}" ]]',
+    'printf \'archive=%s\\n\' "${archive}" >> "${GITHUB_OUTPUT}"',
+  ),
+  sbom: block(
+    "set -euo pipefail",
+    "npm sbom --omit=dev --sbom-format cyclonedx > target/sbom-a.raw.json",
+    "sleep 1",
+    "npm sbom --omit=dev --sbom-format cyclonedx > target/sbom-b.raw.json",
+    'node scripts/normalize-sbom.mjs target/sbom-a.raw.json "target/dig-${VERSION}.cdx.json"',
+    "node scripts/normalize-sbom.mjs target/sbom-b.raw.json target/sbom-b.cdx.json",
+    'cmp "target/dig-${VERSION}.cdx.json" target/sbom-b.cdx.json',
+    'npm ls --omit=dev --all --json > "target/dig-npm-dependencies-${VERSION}.json"',
+    "npm ls --omit=dev --all --json > target/dependencies-b.json",
+    'cmp "target/dig-npm-dependencies-${VERSION}.json" target/dependencies-b.json',
+  ),
+  assemble: block(
+    "set -euo pipefail",
+    "node scripts/validate-release.mjs \\",
+    "  --assemble release \\",
+    '  --commit "$(git rev-parse HEAD)" \\',
+    '  --archive "${ARCHIVE}" \\',
+    '  --sbom "target/dig-${VERSION}.cdx.json" \\',
+    '  --dependencies "target/dig-npm-dependencies-${VERSION}.json"',
+  ),
+  publicationGate: block(
+    "set -euo pipefail",
+    '[[ "${RELEASE_PUBLICATION_ENABLED}" == "true" ]] || {',
+    '  echo "Release publication is disabled until every contributor approves a project license." >&2',
+    "  exit 1",
+    "}",
+  ),
+  licenseGate: block(
+    "set -euo pipefail",
+    "[[ ( -f LICENSE && ! -L LICENSE ) || ( -f LICENSE.md && ! -L LICENSE.md ) || ( -f LICENSE.txt && ! -L LICENSE.txt ) ]] || {",
+    '  echo "Release publication requires an approved, checked-in license." >&2',
+    "  exit 1",
+    "}",
+  ),
+  installGh: block(
+    "set -euo pipefail",
+    'archive="${RUNNER_TEMP}/gh_${GH_CLI_VERSION}_linux_amd64.tar.gz"',
+    "curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \\",
+    '  "https://github.com/cli/cli/releases/download/v${GH_CLI_VERSION}/gh_${GH_CLI_VERSION}_linux_amd64.tar.gz" \\',
+    '  --output "${archive}"',
+    'printf \'%s  %s\\n\' "${GH_CLI_SHA256}" "${archive}" | sha256sum --check --strict',
+    'tar --extract --gzip --file "${archive}" --directory "${RUNNER_TEMP}"',
+    'gh_directory="${RUNNER_TEMP}/gh_${GH_CLI_VERSION}_linux_amd64/bin"',
+    '[[ "$("${gh_directory}/gh" --version | head -n 1)" == "gh version ${GH_CLI_VERSION} (2026-06-10)" ]]',
+    'printf \'%s\\n\' "${gh_directory}" >> "${GITHUB_PATH}"',
+  ),
+  reverify: block(
+    "set -euo pipefail",
+    "npm ci --ignore-scripts",
+    'source_commit="$(git rev-parse "${GITHUB_REF_NAME}^{commit}")"',
+    '[[ "${source_commit}" == "$(git rev-parse HEAD)" ]]',
+    'git fetch --no-tags origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"',
+    'default_head="$(git rev-parse "refs/remotes/origin/${DEFAULT_BRANCH}^{commit}")"',
+    'git merge-base --is-ancestor "${source_commit}" "${default_head}"',
+    'printf \'source_commit=%s\\n\' "${source_commit}" >> "${GITHUB_OUTPUT}"',
+    "node scripts/validate-release.mjs \\",
+    '  --tag "${GITHUB_REF_NAME}" \\',
+    "  --verify-bundle release \\",
+    '  --commit "${source_commit}"',
+  ),
+  verifyAttestations: 'node scripts/verify-attestations.mjs --directory release --repository "${{ github.repository }}" --signer-workflow "${{ github.repository }}/.github/workflows/release.yml" --source-commit "${{ steps.source.outputs.source_commit }}" --source-ref "${{ github.ref }}"',
+  publish: 'node scripts/publish-release.mjs --directory release --tag "${{ github.ref_name }}" --repository "${{ github.repository }}" --default-branch "${{ github.event.repository.default_branch }}" --source-commit "${{ steps.source.outputs.source_commit }}"',
+});
+
+const buildContracts = Object.freeze([
+  { name: "Check out repository", uses: actions.checkout, with: { "fetch-depth": 0, "persist-credentials": false } },
+  { name: "Set up Node.js", uses: actions.setupNode, with: { "node-version": "22.23.1", cache: "npm" } },
+  { name: "Verify pinned Node.js toolchain", shell: "bash", run: runs.toolchain },
+  { name: "Install locked release tooling", run: runs.install },
+  {
+    name: "Validate synchronized release metadata and source",
+    id: "metadata",
+    shell: "bash",
+    env: {
+      DEFAULT_BRANCH: "${{ github.event.repository.default_branch }}",
+      EXPECTED_TAG: "${{ inputs.expected_tag }}",
+    },
+    run: runs.metadata,
+  },
+  { name: "Test and audit all dependencies", run: runs.testAndAudit },
+  {
+    name: "Build and smoke-test installable CLI package",
+    id: "package",
+    shell: "bash",
+    env: { VERSION: "${{ steps.metadata.outputs.version }}" },
+    run: runs.package,
+  },
+  {
+    name: "Capture SBOM and dependency evidence",
+    shell: "bash",
+    env: { VERSION: "${{ steps.metadata.outputs.version }}" },
+    run: runs.sbom,
+  },
+  {
+    name: "Assemble and reverify release bundle",
+    shell: "bash",
+    env: {
+      VERSION: "${{ steps.metadata.outputs.version }}",
+      ARCHIVE: "${{ steps.package.outputs.archive }}",
+    },
+    run: runs.assemble,
+  },
+  {
+    name: "Upload verified release candidate",
+    uses: actions.uploadArtifact,
+    with: {
+      name: "dig-release-candidate",
+      path: "release",
+      "if-no-files-found": "error",
+      "retention-days": 7,
+      "compression-level": 0,
+    },
+  },
+]);
+
+const publishContracts = Object.freeze([
+  { name: "Enforce static publication approval", shell: "bash", run: runs.publicationGate },
+  { name: "Check out tagged source", uses: actions.checkout, with: { "fetch-depth": 0, "persist-credentials": false } },
+  { name: "Enforce checked-in license", shell: "bash", run: runs.licenseGate },
+  { name: "Set up Node.js", uses: actions.setupNode, with: { "node-version": "22.23.1", cache: "npm" } },
+  { name: "Verify pinned Node.js toolchain", shell: "bash", run: runs.toolchain },
+  {
+    name: "Install verified GitHub CLI",
+    shell: "bash",
+    env: {
+      GH_CLI_VERSION: "2.94.0",
+      GH_CLI_SHA256: "a757f1ba6db18f4de8cbadb244843a5f89bc75b5e7c6fc127d2bd77fbd12ed62",
+    },
+    run: runs.installGh,
+  },
+  {
+    name: "Download verified release candidate",
+    uses: actions.downloadArtifact,
+    with: { name: "dig-release-candidate", path: "release" },
+  },
+  {
+    name: "Reverify tag, default-branch source, inventory, and checksums",
+    id: "source",
+    shell: "bash",
+    env: { DEFAULT_BRANCH: "${{ github.event.repository.default_branch }}" },
+    run: runs.reverify,
+  },
+  { name: "Attest release assets", uses: actions.attest, with: { "subject-checksums": "release/SHA256SUMS" } },
+  { name: "Attest checksum manifest", uses: actions.attest, with: { "subject-path": "release/SHA256SUMS" } },
+  {
+    name: "Verify release provenance before publication",
+    env: { GH_TOKEN: "${{ github.token }}" },
+    run: runs.verifyAttestations,
+  },
+  {
+    name: "Stage, verify, and publish GitHub Release",
+    env: { GH_TOKEN: "${{ github.token }}" },
+    run: runs.publish,
+  },
+]);
 
 function parseWorkflow(workflow) {
   const documents = parseAllDocuments(workflow, {
@@ -53,12 +261,14 @@ function exactKeys(entries, expected, label) {
   );
 }
 
-function exactString(node, expected, label) {
+function exactScalar(node, expected, label) {
   assert.equal(scalarValue(node, label), expected, `${label} changed unexpectedly.`);
 }
 
-function exactBoolean(node, expected, label) {
-  assert.equal(scalarValue(node, label), expected, `${label} changed unexpectedly.`);
+function exactMapping(node, expected, label) {
+  const entries = mappingEntries(node, label);
+  exactKeys(entries, Object.keys(expected), label);
+  for (const [key, value] of Object.entries(expected)) exactScalar(entries.get(key), value, `${label}.${key}`);
 }
 
 function stringSequence(node, label) {
@@ -75,7 +285,6 @@ function walkYaml(node, path, state) {
   assert.equal(isAlias(node), false, `Release workflow does not allow YAML aliases at ${path}.`);
   assert.equal(node.anchor, undefined, `Release workflow does not allow YAML anchors at ${path}.`);
   assert.equal(node.tag, undefined, `Release workflow does not allow explicit YAML tags at ${path}.`);
-
   if (isMap(node)) {
     for (const pair of node.items) {
       walkYaml(pair.key, `${path}.<key>`, state);
@@ -89,32 +298,34 @@ function walkYaml(node, path, state) {
     }
     return;
   }
-  if (isSeq(node)) {
-    node.items.forEach((item, index) => walkYaml(item, `${path}[${index}]`, state));
-  }
+  if (isSeq(node)) node.items.forEach((item, index) => walkYaml(item, `${path}[${index}]`, state));
 }
 
-function validateUses(uses, allowedLocalActions) {
-  assert.ok(uses.length > 0, "Release workflow contains no actions.");
-  for (const { node, path } of uses) {
+function validateUses(uses) {
+  const expected = [...buildContracts, ...publishContracts]
+    .filter(({ uses: reference }) => reference)
+    .map(({ uses: reference }) => reference);
+  const actual = uses.map(({ node, path }) => {
     const reference = scalarValue(node, path);
     assert.equal(typeof reference, "string", `${path} must be a string.`);
-    if (reference.startsWith("./")) {
-      assert.match(reference, localUsePattern, `${path} contains an unsafe local action path.`);
-      assert.ok(allowedLocalActions.has(reference), `${path} references an unapproved local action: ${reference}`);
-    } else {
-      assert.match(
-        reference,
-        remoteUsePattern,
-        `${path} must be owner/repository[/path] pinned to a lowercase 40-character commit SHA: ${reference}`,
-      );
-      const location = reference.slice(0, reference.lastIndexOf("@"));
-      assert.ok(
-        location.split("/").every((segment) => segment !== "." && segment !== ".."),
-        `${path} contains an unsafe remote action path: ${reference}`,
-      );
-    }
-  }
+    assert.equal(
+      reference.startsWith("./") || reference.startsWith("../") || reference.startsWith("/"),
+      false,
+      `${path} local actions are forbidden by the release contract: ${reference}`,
+    );
+    assert.match(
+      reference,
+      remoteUsePattern,
+      `${path} must be owner/repository[/path] pinned to a lowercase 40-character commit SHA: ${reference}`,
+    );
+    const location = reference.slice(0, reference.lastIndexOf("@"));
+    assert.ok(
+      location.split("/").every((segment) => segment !== "." && segment !== ".."),
+      `${path} contains an unsafe remote action path: ${reference}`,
+    );
+    return reference;
+  });
+  assert.deepEqual(actual, expected, "Release workflow action owner, repository, SHA, or order changed unexpectedly.");
 }
 
 function validateTriggers(root) {
@@ -123,251 +334,92 @@ function validateTriggers(root) {
   assert.equal(
     scalarValue(triggers.get("pull_request"), "pull_request trigger"),
     null,
-    "pull_request must not accept privileged or dynamic configuration.",
+    "pull_request must remain unfiltered so the required build context always runs.",
   );
-
   const dispatch = mappingEntries(triggers.get("workflow_dispatch"), "workflow_dispatch");
   exactKeys(dispatch, ["inputs"], "workflow_dispatch");
   const inputs = mappingEntries(dispatch.get("inputs"), "workflow_dispatch inputs");
   exactKeys(inputs, ["expected_tag"], "workflow_dispatch inputs");
-  const expectedTag = mappingEntries(inputs.get("expected_tag"), "expected_tag input");
-  exactKeys(expectedTag, ["description", "required", "type"], "expected_tag input");
-  assert.equal(typeof scalarValue(expectedTag.get("description"), "expected_tag description"), "string");
-  exactBoolean(expectedTag.get("required"), false, "expected_tag required");
-  exactString(expectedTag.get("type"), "string", "expected_tag type");
-
+  exactMapping(inputs.get("expected_tag"), {
+    description: "Optional v<version> value to exercise tag validation without publishing",
+    required: false,
+    type: "string",
+  }, "expected_tag input");
   const push = mappingEntries(triggers.get("push"), "push trigger");
   exactKeys(push, ["branches", "tags"], "push trigger");
   assert.deepEqual(stringSequence(push.get("branches"), "push branches"), ["main"], "Release workflow must build main pushes only.");
   assert.deepEqual(stringSequence(push.get("tags"), "push tags"), ["v*"], "Release workflow must build stable-tag candidates only.");
 }
 
-function validatePermissions(node, expected, label) {
-  const permissions = mappingEntries(node, label);
-  exactKeys(permissions, Object.keys(expected), label);
-  for (const [name, level] of Object.entries(expected)) exactString(permissions.get(name), level, `${label}.${name}`);
-}
-
-function validateStepSequence(node, label) {
-  assert.ok(isSeq(node) && node.items.length > 0, `${label} must contain steps.`);
-  const steps = [];
+function validateStepSequence(node, contracts, label) {
+  assert.ok(isSeq(node), `${label} must be a sequence.`);
+  assert.equal(node.items.length, contracts.length, `${label} changed unexpectedly.`);
   const names = new Set();
-  for (const [index, item] of node.items.entries()) {
-    const step = mappingEntries(item, `${label}[${index}]`);
-    const allowed = [
-      "continue-on-error",
-      "env",
-      "id",
-      "if",
-      "name",
-      "run",
-      "shell",
-      "timeout-minutes",
-      "uses",
-      "with",
-      "working-directory",
-    ];
-    assert.ok([...step.keys()].every((key) => allowed.includes(key)), `${label}[${index}] contains an unsupported step key.`);
-    const name = scalarValue(step.get("name"), `${label}[${index}].name`);
-    assert.equal(typeof name, "string", `${label}[${index}].name must be a string.`);
-    assert.equal(names.has(name), false, `${label} repeats step name ${name}.`);
-    names.add(name);
-    assert.notEqual(step.has("uses"), step.has("run"), `${label}[${index}] must declare exactly one of uses or run.`);
-    if (step.has("uses")) assert.equal(typeof scalarValue(step.get("uses"), `${label}[${index}].uses`), "string");
-    if (step.has("run")) assert.equal(typeof scalarValue(step.get("run"), `${label}[${index}].run`), "string");
-    if (step.has("env")) mappingEntries(step.get("env"), `${label}[${index}].env`);
-    if (step.has("with")) mappingEntries(step.get("with"), `${label}[${index}].with`);
-    steps.push({ name, entries: step });
+  for (const [index, contract] of contracts.entries()) {
+    const stepLabel = `${label}[${index}] ${contract.name}`;
+    const step = mappingEntries(node.items[index], stepLabel);
+    const expectedKeys = ["name", contract.uses ? "uses" : "run"];
+    for (const optional of ["id", "shell", "env", "with"]) {
+      if (Object.hasOwn(contract, optional)) expectedKeys.push(optional);
+    }
+    exactKeys(step, expectedKeys, stepLabel);
+    exactScalar(step.get("name"), contract.name, `${stepLabel}.name`);
+    assert.equal(names.has(contract.name), false, `${label} repeats ${contract.name}.`);
+    names.add(contract.name);
+    if (contract.uses) exactScalar(step.get("uses"), contract.uses, `${stepLabel}.uses`);
+    else exactScalar(step.get("run"), contract.run, `${stepLabel}.run`);
+    if (contract.id) exactScalar(step.get("id"), contract.id, `${stepLabel}.id`);
+    if (contract.shell) exactScalar(step.get("shell"), contract.shell, `${stepLabel}.shell`);
+    if (contract.env) exactMapping(step.get("env"), contract.env, `${stepLabel}.env`);
+    if (contract.with) exactMapping(step.get("with"), contract.with, `${stepLabel}.with`);
   }
-  return steps;
 }
 
-function stepByName(steps, name, label) {
-  const matches = steps.filter((step) => step.name === name);
-  assert.equal(matches.length, 1, `${label} must contain exactly one ${name} step.`);
-  return matches[0];
-}
-
-function stepIndex(steps, name, label) {
-  const index = steps.findIndex((step) => step.name === name);
-  assert.notEqual(index, -1, `${label} is missing ${name}.`);
-  return index;
-}
-
-function stepRun(step, label) {
-  const value = scalarValue(step.entries.get("run"), `${label}.run`);
-  assert.equal(typeof value, "string", `${label}.run must be a string.`);
-  return value;
-}
-
-function validateNodeSetup(steps, label) {
-  const setup = steps.filter(({ entries }) => entries.has("uses")
-    && scalarValue(entries.get("uses"), `${label}.uses`) === "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020");
-  assert.equal(setup.length, 1, `${label} must use the pinned Node.js setup action exactly once.`);
-  const withEntries = mappingEntries(setup[0].entries.get("with"), `${label} setup-node.with`);
-  exactKeys(withEntries, ["cache", "node-version"], `${label} setup-node.with`);
-  exactString(withEntries.get("node-version"), "22.23.1", `${label} Node.js version`);
-  exactString(withEntries.get("cache"), "npm", `${label} dependency cache`);
-}
-
-function validateSourceContainment(steps, stepName, label) {
-  const run = stepRun(stepByName(steps, stepName, label), `${label}.${stepName}`);
-  assert.ok(run.includes('source_commit="$(git rev-parse "${GITHUB_REF_NAME}^{commit}")"'), `${label} must resolve the remote tag commit explicitly.`);
-  assert.ok(run.includes('[[ "${source_commit}" == "$(git rev-parse HEAD)" ]]'), `${label} must bind the checkout to the tag commit.`);
-  assert.ok(run.includes('git fetch --no-tags origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"'), `${label} must refresh the current default branch.`);
-  assert.ok(run.includes('git merge-base --is-ancestor "${source_commit}" "${default_head}"'), `${label} must require tagged-source containment in the default branch.`);
-  assert.equal(run.includes('[[ "${source_commit}" == "${default_head}" ]]'), false, `${label} must allow safe recovery after the default branch advances.`);
-}
-
-export function validateReleaseWorkflowText(workflow, { allowedLocalActions = [] } = {}) {
+export function validateReleaseWorkflowText(workflow) {
   const rootNode = parseWorkflow(workflow);
   const state = { uses: [], permissions: [], publicationFlags: [] };
   walkYaml(rootNode, "$", state);
-  validateUses(state.uses, new Set(allowedLocalActions));
+  validateUses(state.uses);
 
   const root = mappingEntries(rootNode, "Release workflow");
   exactKeys(root, ["concurrency", "env", "jobs", "name", "on", "permissions"], "Release workflow");
-  exactString(root.get("name"), "Release readiness", "Workflow name");
+  exactScalar(root.get("name"), "Release readiness", "Workflow name");
   validateTriggers(root);
-  validatePermissions(root.get("permissions"), { contents: "read" }, "Workflow permissions");
-
-  const environment = mappingEntries(root.get("env"), "Workflow environment");
-  exactKeys(environment, ["RELEASE_PUBLICATION_ENABLED"], "Workflow environment");
-  exactString(environment.get("RELEASE_PUBLICATION_ENABLED"), "false", "Release publication approval");
+  exactMapping(root.get("permissions"), { contents: "read" }, "Workflow permissions");
+  exactMapping(root.get("env"), { RELEASE_PUBLICATION_ENABLED: "false" }, "Workflow environment");
   assert.deepEqual(state.publicationFlags, ["$.env.RELEASE_PUBLICATION_ENABLED"], "Release publication approval must not be shadowed or overridden.");
   assert.deepEqual(
     state.permissions.sort(),
     ["$.jobs.publish.permissions", "$.permissions"],
     "Only root and publish-job permissions are supported.",
   );
-
-  const concurrency = mappingEntries(root.get("concurrency"), "Workflow concurrency");
-  exactKeys(concurrency, ["cancel-in-progress", "group"], "Workflow concurrency");
-  exactString(concurrency.get("group"), "release-${{ github.ref }}", "Workflow concurrency group");
-  exactBoolean(concurrency.get("cancel-in-progress"), false, "Workflow concurrency cancellation");
+  exactMapping(root.get("concurrency"), {
+    group: "release-${{ github.ref }}",
+    "cancel-in-progress": false,
+  }, "Workflow concurrency");
 
   const jobs = mappingEntries(root.get("jobs"), "Release jobs");
   exactKeys(jobs, ["build", "publish"], "Release jobs");
   const build = mappingEntries(jobs.get("build"), "Build job");
   exactKeys(build, ["name", "runs-on", "steps", "timeout-minutes"], "Build job");
-  exactString(build.get("name"), "Build and verify release candidate", "Build job name");
-  exactString(build.get("runs-on"), "ubuntu-24.04", "Build runner");
-  assert.equal(scalarValue(build.get("timeout-minutes"), "Build timeout"), 15, "Build timeout changed unexpectedly.");
+  exactScalar(build.get("name"), "Build and verify release candidate", "Build job name");
+  exactScalar(build.get("runs-on"), "ubuntu-24.04", "Build runner");
+  exactScalar(build.get("timeout-minutes"), 15, "Build timeout");
 
   const publish = mappingEntries(jobs.get("publish"), "Publish job");
   exactKeys(publish, ["if", "name", "needs", "permissions", "runs-on", "steps", "timeout-minutes"], "Publish job");
-  exactString(publish.get("name"), "Attest and publish tagged release", "Publish job name");
-  exactString(publish.get("if"), "github.event_name == 'push' && github.ref_type == 'tag'", "Publish condition");
-  exactString(publish.get("needs"), "build", "Publish dependency");
-  exactString(publish.get("runs-on"), "ubuntu-24.04", "Publish runner");
-  assert.equal(scalarValue(publish.get("timeout-minutes"), "Publish timeout"), 10, "Publish timeout changed unexpectedly.");
-  validatePermissions(publish.get("permissions"), {
-    "artifact-metadata": "write",
-    attestations: "write",
+  exactScalar(publish.get("name"), "Attest and publish tagged release", "Publish job name");
+  exactScalar(publish.get("if"), "github.event_name == 'push' && github.ref_type == 'tag'", "Publish condition");
+  exactScalar(publish.get("needs"), "build", "Publish dependency");
+  exactScalar(publish.get("runs-on"), "ubuntu-24.04", "Publish runner");
+  exactScalar(publish.get("timeout-minutes"), 10, "Publish timeout");
+  exactMapping(publish.get("permissions"), {
     contents: "write",
     "id-token": "write",
+    attestations: "write",
+    "artifact-metadata": "write",
   }, "Publish permissions");
 
-  const buildSteps = validateStepSequence(build.get("steps"), "Build steps");
-  const publishSteps = validateStepSequence(publish.get("steps"), "Publish steps");
-  assert.deepEqual(buildSteps.map(({ name }) => name), [
-    "Check out repository",
-    "Set up Node.js",
-    "Verify pinned Node.js toolchain",
-    "Install locked release tooling",
-    "Validate synchronized release metadata and source",
-    "Test and audit all dependencies",
-    "Build and smoke-test installable CLI package",
-    "Capture SBOM and dependency evidence",
-    "Assemble and reverify release bundle",
-    "Upload verified release candidate",
-  ], "Build steps changed unexpectedly.");
-  assert.deepEqual(publishSteps.map(({ name }) => name), [
-    "Check out tagged source",
-    "Set up Node.js",
-    "Enforce release authorization gate",
-    "Verify pinned Node.js toolchain",
-    "Install verified GitHub CLI",
-    "Download verified release candidate",
-    "Reverify tag, default-branch source, inventory, and checksums",
-    "Attest release assets",
-    "Attest checksum manifest",
-    "Verify release provenance before publication",
-    "Stage, verify, and publish GitHub Release",
-  ], "Publish steps changed unexpectedly.");
-  validateNodeSetup(buildSteps, "Build job");
-  validateNodeSetup(publishSteps, "Publish job");
-  const buildInstall = stepIndex(buildSteps, "Install locked release tooling", "Build job");
-  const buildMetadata = stepIndex(buildSteps, "Validate synchronized release metadata and source", "Build job");
-  assert.ok(buildInstall < buildMetadata, "Locked release tooling must be installed before metadata validation.");
-  exactString(
-    stepByName(buildSteps, "Install locked release tooling", "Build job").entries.get("run"),
-    "npm ci --ignore-scripts",
-    "Locked release tooling installation",
-  );
-  const testRun = stepRun(stepByName(buildSteps, "Test and audit all dependencies", "Build job"), "Build test and audit");
-  assert.ok(testRun.includes("npm run check"), "Build job must run the complete project checks.");
-  assert.ok(testRun.includes("npm audit --audit-level=moderate"), "Build job must audit all dependencies at moderate severity.");
-  assert.equal(testRun.includes("--omit=dev"), false, "Build job must not omit release parser tooling from its audit.");
-  validateSourceContainment(buildSteps, "Validate synchronized release metadata and source", "Build job");
-  validateSourceContainment(publishSteps, "Reverify tag, default-branch source, inventory, and checksums", "Publish job");
-
-  const authorization = stepIndex(publishSteps, "Enforce release authorization gate", "Publish job");
-  const ghInstallation = stepIndex(publishSteps, "Install verified GitHub CLI", "Publish job");
-  const firstAttestation = stepIndex(publishSteps, "Attest release assets", "Publish job");
-  const secondAttestation = stepIndex(publishSteps, "Attest checksum manifest", "Publish job");
-  const verification = stepIndex(publishSteps, "Verify release provenance before publication", "Publish job");
-  const publication = stepIndex(publishSteps, "Stage, verify, and publish GitHub Release", "Publish job");
-  assert.ok(authorization < ghInstallation, "Release authorization must precede release tooling installation.");
-  assert.ok(ghInstallation < firstAttestation, "Verified GitHub CLI installation must precede attestations.");
-  assert.ok(firstAttestation < secondAttestation && secondAttestation < verification, "Both attestations must precede provenance verification.");
-  assert.ok(verification < publication, "Release publication must happen after provenance verification.");
-
-  const authorizationRun = stepRun(publishSteps[authorization], "Release authorization gate");
-  assert.ok(authorizationRun.includes('[[ "${RELEASE_PUBLICATION_ENABLED}" == "true" ]]'), "Publication requires explicit contributor approval.");
-  for (const license of ["LICENSE", "LICENSE.md", "LICENSE.txt"]) {
-    assert.ok(authorizationRun.includes(`-f ${license}`), `Authorization gate must check ${license}.`);
-    assert.ok(authorizationRun.includes(`! -L ${license}`), `Authorization gate must reject a symlinked ${license}.`);
-  }
-
-  const installStep = stepByName(publishSteps, "Install verified GitHub CLI", "Publish job");
-  const installEnvironment = mappingEntries(installStep.entries.get("env"), "GitHub CLI install environment");
-  exactKeys(installEnvironment, ["GH_CLI_SHA256", "GH_CLI_VERSION"], "GitHub CLI install environment");
-  exactString(installEnvironment.get("GH_CLI_VERSION"), "2.94.0", "GitHub CLI version");
-  exactString(
-    installEnvironment.get("GH_CLI_SHA256"),
-    "a757f1ba6db18f4de8cbadb244843a5f89bc75b5e7c6fc127d2bd77fbd12ed62",
-    "GitHub CLI checksum",
-  );
-  const installRun = stepRun(installStep, "GitHub CLI installation");
-  assert.ok(installRun.includes("sha256sum --check --strict"), "GitHub CLI archive must be checksum-verified.");
-  assert.ok(installRun.includes('>> "${GITHUB_PATH}"'), "Verified GitHub CLI must be placed on the workflow path.");
-
-  const attestationUses = state.uses.filter(({ node }) => scalarValue(node, "uses")
-    === "actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6");
-  assert.equal(attestationUses.length, 2, "Publish job must create exactly two pinned attestations.");
-  const attestationWith = mappingEntries(publishSteps[firstAttestation].entries.get("with"), "Asset attestation inputs");
-  exactString(attestationWith.get("subject-checksums"), "release/SHA256SUMS", "Asset attestation checksum manifest");
-  const manifestWith = mappingEntries(publishSteps[secondAttestation].entries.get("with"), "Manifest attestation inputs");
-  exactString(manifestWith.get("subject-path"), "release/SHA256SUMS", "Manifest attestation subject");
-
-  const verificationRun = stepRun(publishSteps[verification], "Provenance verification");
-  const publicationRun = stepRun(publishSteps[publication], "Release publication");
-  assert.ok(
-    verificationRun.includes("node scripts/verify-attestations.mjs"),
-    "Provenance verification must execute the reviewed verifier.",
-  );
-  assert.ok(
-    publicationRun.includes("node scripts/publish-release.mjs"),
-    "Release publication must execute the reviewed publisher.",
-  );
-  for (const required of [
-    '--source-commit "${{ steps.source.outputs.source_commit }}"',
-    '--source-ref "${{ github.ref }}"',
-    '--signer-workflow "${{ github.repository }}/.github/workflows/release.yml"',
-  ]) assert.ok(verificationRun.includes(required), `Provenance verification is missing binding: ${required}`);
-  for (const required of [
-    '--default-branch "${{ github.event.repository.default_branch }}"',
-    '--source-commit "${{ steps.source.outputs.source_commit }}"',
-  ]) assert.ok(publicationRun.includes(required), `Release publication is missing binding: ${required}`);
+  validateStepSequence(build.get("steps"), buildContracts, "Build steps");
+  validateStepSequence(publish.get("steps"), publishContracts, "Publish steps");
 }

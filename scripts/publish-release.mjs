@@ -27,6 +27,30 @@ function runGitHubCli(args) {
   return result;
 }
 
+async function uploadWithGitHubApi({ url, path }) {
+  assert.ok(typeof process.env.GH_TOKEN === "string" && process.env.GH_TOKEN !== "", "GH_TOKEN is required for release asset upload.");
+  const body = await readFile(path);
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      redirect: "error",
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${process.env.GH_TOKEN}`,
+        "Content-Type": "application/octet-stream",
+        "X-GitHub-Api-Version": githubApiVersion,
+      },
+      body,
+    });
+    const responseBody = await response.text();
+    return response.ok
+      ? { status: 0, stdout: responseBody, stderr: "" }
+      : { status: 1, stdout: "", stderr: `HTTP ${response.status}: ${responseBody}` };
+  } catch (error) {
+    return { status: 1, stdout: "", stderr: `Network error: ${error.message}` };
+  }
+}
+
 function apiArguments(endpoint, additional = []) {
   return ["api", endpoint, "-H", `X-GitHub-Api-Version: ${githubApiVersion}`, ...additional];
 }
@@ -147,6 +171,28 @@ function validateDraftRelease(release, contract) {
   validateReleaseIdentity(release, contract);
   assert.equal(release.draft, true, `Refusing to modify published release ${contract.tag}.`);
   assert.ok(typeof release.upload_url === "string" && release.upload_url !== "", "GitHub draft is missing its upload URL.");
+}
+
+function releaseAssetEndpoint({ release, repository }) {
+  const suffix = "{?name,label}";
+  assert.ok(release.upload_url.endsWith(suffix), "GitHub draft has an unsupported upload URL template.");
+  const rawUrl = release.upload_url.slice(0, -suffix.length);
+  let uploadUrl;
+  try {
+    uploadUrl = new URL(rawUrl);
+  } catch (error) {
+    throw new Error(`GitHub draft has an invalid upload URL: ${error.message}`);
+  }
+  assert.equal(uploadUrl.protocol, "https:", "GitHub draft upload URL must use HTTPS.");
+  assert.equal(uploadUrl.hostname, "uploads.github.com", "GitHub draft upload URL has an unexpected host.");
+  assert.equal(uploadUrl.port, "", "GitHub draft upload URL must not override the HTTPS port.");
+  assert.equal(uploadUrl.username, "", "GitHub draft upload URL must not contain credentials.");
+  assert.equal(uploadUrl.password, "", "GitHub draft upload URL must not contain credentials.");
+  assert.equal(uploadUrl.search, "", "GitHub draft upload URL must not contain an unverified query.");
+  assert.equal(uploadUrl.hash, "", "GitHub draft upload URL must not contain a fragment.");
+  const pathname = `/repos/${repository}/releases/${release.id}/assets`;
+  assert.equal(uploadUrl.pathname, pathname, "GitHub draft upload URL is not bound to the verified repository and release ID.");
+  return rawUrl;
 }
 
 function validatePublishedRelease(release, contract) {
@@ -326,25 +372,56 @@ async function waitForDraftInventory({ repository, releaseId, contract, expected
   throw lastError;
 }
 
-async function uploadReleaseAssets({ directory, tag, repository, releaseId, contract, expected, run, pause }) {
-  const args = [
-    "release",
-    "upload",
-    tag,
-    ...expected.map(({ name }) => resolve(directory, name)),
-    "--repo",
-    repository,
-  ];
-  const result = run(args);
-  if (result.status === 0) return waitForDraftInventory({ repository, releaseId, contract, expected, run, pause });
+function parseJsonResult(endpoint, result) {
   try {
-    return await waitForDraftInventory({ repository, releaseId, contract, expected, run, pause });
-  } catch (reconciliationError) {
-    throw new Error(
-      `${commandError(args, result).message}. The contract-bound draft was left recoverable; inventory reconciliation failed: ${reconciliationError.message}`,
-      { cause: reconciliationError },
-    );
+    return JSON.parse(result.stdout);
+  } catch (error) {
+    throw new Error(`GitHub returned invalid JSON for ${endpoint}: ${error.message}`);
   }
+}
+
+function validateUploadedAsset(uploaded, expected) {
+  assert.ok(uploaded && typeof uploaded === "object" && !Array.isArray(uploaded), "GitHub returned an invalid uploaded asset.");
+  assert.ok(Number.isSafeInteger(uploaded.id) && uploaded.id > 0, "GitHub returned an uploaded asset with an invalid ID.");
+  assert.equal(uploaded.name, expected.name, "GitHub returned a different uploaded asset name.");
+  if (uploaded.size !== null && uploaded.size !== undefined) {
+    assert.equal(uploaded.size, expected.size, `GitHub uploaded ${expected.name} with the wrong size.`);
+  }
+  if (uploaded.digest !== null && uploaded.digest !== undefined) {
+    assert.equal(uploaded.digest, expected.digest, `GitHub uploaded ${expected.name} with the wrong digest.`);
+  }
+}
+
+async function uploadReleaseAssets({ release, repository, contract, expected, run, upload, pause }) {
+  const releaseId = release.id;
+  const current = releaseById({ repository, releaseId, run });
+  assert.equal(current.id, releaseId, "GitHub returned a different release immediately before asset upload.");
+  validateDraftRelease(current, contract);
+  assert.equal(current.assets.length, 0, `GitHub draft ${contract.tag} is not empty immediately before upload.`);
+  const endpointBase = releaseAssetEndpoint({ release: current, repository });
+
+  for (const asset of expected) {
+    const endpoint = `${endpointBase}?name=${encodeURIComponent(asset.name)}`;
+    const result = await upload({ url: endpoint, path: asset.path });
+    let failureDetail = (result.stderr || result.stdout || `exit ${result.status}`).trim();
+    if (result.status === 0) {
+      try {
+        validateUploadedAsset(parseJsonResult(endpoint, result), asset);
+        continue;
+      } catch (error) {
+        failureDetail = `Ambiguous upload response: ${error.message}`;
+      }
+    }
+    try {
+      return await waitForDraftInventory({ repository, releaseId, contract, expected, run, pause });
+    } catch (reconciliationError) {
+      throw new Error(
+        `GitHub asset upload failed for the verified release ID ${releaseId}: ${failureDetail}. The contract-bound draft was left recoverable; inventory reconciliation failed: ${reconciliationError.message}`,
+        { cause: reconciliationError },
+      );
+    }
+  }
+  return waitForDraftInventory({ repository, releaseId, contract, expected, run, pause });
 }
 
 function verifyPublishedState({ repository, releaseId, contract, expected, run, requireLatest }) {
@@ -399,6 +476,7 @@ export async function publishReleaseCandidate({
   publicationAuthorized = process.env.RELEASE_PUBLICATION_ENABLED === "true",
   licensePresent = checkedInLicenseExists(root),
   run = runGitHubCli,
+  upload = uploadWithGitHubApi,
   pause = (milliseconds) => new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds)),
 }) {
   assert.equal(publicationAuthorized, true, "Release publication is disabled until every contributor approves a project license.");
@@ -449,13 +527,12 @@ export async function publishReleaseCandidate({
 
   release = resetRecoverableDraft({ repository, release, contract, expected, run });
   await uploadReleaseAssets({
-    directory,
-    tag,
+    release,
     repository,
-    releaseId: release.id,
     contract,
     expected,
     run,
+    upload,
     pause,
   });
   requireRemoteSourceBinding({ repository, defaultBranch, tag, sourceCommit, run });

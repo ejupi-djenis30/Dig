@@ -115,16 +115,10 @@ test("version validation uses top-level CommonMark H2 sections and real list not
     `    ## ${VERSION} — 2026-07-20\n    - Hidden`,
     `> ## ${VERSION} — 2026-07-20\n> - Hidden`,
     `- item\n\n  ## ${VERSION} — 2026-07-20\n\n  - Hidden`,
-    `<pre>\n## ${VERSION} — 2026-07-20\n- Hidden\n</pre>`,
-    `<script>\n## ${VERSION} — 2026-07-20\n- Hidden\n</script>`,
-    `<style>\n## ${VERSION} — 2026-07-20\n- Hidden\n</style>`,
-    `<textarea>\n## ${VERSION} — 2026-07-20\n- Hidden\n</textarea>`,
     `<!--\n## ${VERSION} — 2026-07-20\n- Hidden\n-->`,
     `<?release\n## ${VERSION} — 2026-07-20\n- Hidden\n?>`,
     `<!RELEASE\n## ${VERSION} — 2026-07-20\n- Hidden\n>`,
     `<![CDATA[\n## ${VERSION} — 2026-07-20\n- Hidden\n]]>`,
-    `<div>\n## ${VERSION} — 2026-07-20\n- Hidden\n</div>`,
-    `<x-release>\n## ${VERSION} — 2026-07-20\n- Hidden\n\n`,
   ];
   for (const changelog of hiddenHeadings) {
     assert.throws(
@@ -133,10 +127,23 @@ test("version validation uses top-level CommonMark H2 sections and real list not
     );
   }
   for (const changelog of [
+    `<pre>\n## ${VERSION} — 2026-07-20\n- Hidden\n</pre>`,
+    `<script>\n## ${VERSION} — 2026-07-20\n- Hidden\n</script>`,
+    `<style>\n## ${VERSION} — 2026-07-20\n- Hidden\n</style>`,
+    `<textarea>\n## ${VERSION} — 2026-07-20\n- Hidden\n</textarea>`,
+    `<div>\n## ${VERSION} — 2026-07-20\n- Hidden\n</div>`,
+    `<x-release>\n## ${VERSION} — 2026-07-20\n- Hidden\n\n`,
+    `<details>\n<summary>Older release</summary>\n\n## ${VERSION} — 2026-07-20\n\n- Hidden\n</details>`,
+    `<div hidden>\n\n## ${VERSION} — 2026-07-20\n\n- Hidden\n</div>`,
+  ]) assert.throws(() => validateVersionTexts({ ...base, changelog }), /structural HTML wrappers/);
+  for (const changelog of [
     `## ${VERSION} — 2026-07-20\n\n> - Quoted only`,
     `## ${VERSION} — 2026-07-20\n\n\`\`\`md\n- Fenced only\n\`\`\``,
-    `## ${VERSION} — 2026-07-20\n\n<div>\n- HTML only\n</div>`,
   ]) assert.throws(() => validateVersionTexts({ ...base, changelog }), /top-level CommonMark list/);
+  assert.throws(
+    () => validateVersionTexts({ ...base, changelog: `## ${VERSION} — 2026-07-20\n\n<div>\n- HTML only\n</div>` }),
+    /structural HTML wrappers/,
+  );
 
   for (const changelog of [
     `   ## ${VERSION} — 2026-07-20\n\n- Indented ATX`,
@@ -285,13 +292,16 @@ class FakeGitHub {
       failUpload: false,
       paginate: false,
       publishedImmutable: true,
+      replaceDraftBeforeUpload: false,
       tagCommit: COMMIT,
+      uploadUrl: undefined,
       wrongLatest: false,
       ...options,
     };
     this.calls = [];
     this.release = null;
     this.nextAssetId = 100;
+    this.uploadCount = 0;
   }
 
   clone(value) {
@@ -349,7 +359,8 @@ class FakeGitHub {
         draft: true,
         prerelease: false,
         immutable: false,
-        upload_url: "https://uploads.github.test/releases/42/assets{?name,label}",
+        upload_url: this.options.uploadUrl
+          ?? "https://uploads.github.com/repos/owner/repository/releases/42/assets{?name,label}",
         assets: [],
       };
       if (this.options.ambiguousCreate) {
@@ -391,22 +402,47 @@ class FakeGitHub {
   run = (args) => {
     this.calls.push([...args]);
     if (args[0] === "api") return this.api(args);
-    if (args[0] === "release" && args[1] === "upload") {
-      const paths = args.slice(3, args.indexOf("--repo"));
-      const names = paths.map((path) => basename(path));
-      const assets = this.expected.filter(({ name }) => names.includes(name));
-      if (this.options.failUpload) {
-        this.release.assets = this.remoteAssets(assets.slice(0, 1));
-        return failed("upload interrupted");
-      }
-      this.release.assets = this.remoteAssets(assets);
-      if (this.options.ambiguousUpload) {
-        this.options.ambiguousUpload = false;
-        return failed("connection reset after upload");
-      }
-      return ok();
-    }
     return failed(`Unexpected gh call: ${args.join(" ")}`);
+  };
+
+  upload = async ({ url, path }) => {
+    this.calls.push(["upload", url, path]);
+    const endpoint = new URL(url);
+    const upload = endpoint.pathname.match(/^\/repos\/owner\/repository\/releases\/(\d+)\/assets$/);
+    if (endpoint.protocol !== "https:" || endpoint.hostname !== "uploads.github.com" || !upload) {
+      return failed(`Unexpected upload URL: ${url}`);
+    }
+    this.uploadCount += 1;
+    if (this.options.replaceDraftBeforeUpload) {
+      this.options.replaceDraftBeforeUpload = false;
+      this.release = {
+        id: 84,
+        tag_name: "v2.1.1",
+        target_commitish: COMMIT,
+        name: "Foreign release",
+        body: "Foreign draft body",
+        draft: true,
+        prerelease: false,
+        immutable: false,
+        upload_url: "https://uploads.github.com/repos/owner/repository/releases/84/assets{?name,label}",
+        assets: [],
+      };
+      return failed("HTTP 404: verified draft was replaced");
+    }
+    if (!this.release || Number(upload[1]) !== this.release.id) return failed("HTTP 404: Not Found");
+    const name = endpoint.searchParams.get("name");
+    if (!name || [...endpoint.searchParams.keys()].some((key) => key !== "name")) return failed("Unexpected upload query");
+    const expected = this.expected.find((asset) => asset.name === name);
+    if (!expected) return failed(`Unexpected upload asset: ${name}`);
+    if (basename(path) !== name) return failed(`Upload input does not match ${name}`);
+    if (this.options.failUpload && this.uploadCount === 2) return failed("upload interrupted");
+    const [uploaded] = this.remoteAssets([expected]);
+    this.release.assets.push(uploaded);
+    if (this.options.ambiguousUpload && this.release.assets.length === this.expected.length) {
+      this.options.ambiguousUpload = false;
+      return failed("connection reset after upload");
+    }
+    return ok(this.clone(uploaded));
   };
 }
 
@@ -422,15 +458,22 @@ function publish(directory, fake, overrides = {}) {
     publicationAuthorized: true,
     licensePresent: true,
     run: fake.run,
+    upload: fake.upload,
     pause: async () => {},
     ...overrides,
   });
 }
 
 function isMutation(args) {
-  if (args[0] === "release" && args[1] === "upload") return true;
+  if (args[0] === "upload") return true;
   if (args[0] !== "api") return false;
   return ["POST", "PATCH", "DELETE"].includes(argument(args, "--method"));
+}
+
+function releaseCreations(calls) {
+  return calls.filter((args) => args[0] === "api"
+    && args[1] === "repos/owner/repository/releases"
+    && argument(args, "--method") === "POST").length;
 }
 
 test("publisher binds an exact contract and promotes only the verified immutable candidate", async () => {
@@ -442,7 +485,9 @@ test("publisher binds an exact contract and promotes only the verified immutable
   assert.match(published.body, /dig-release\/v1/);
   assert.match(published.body, new RegExp(COMMIT));
   assert.match(published.body, new RegExp(expected.find(({ name }) => name === "SHA256SUMS").digest));
-  assert.ok(fake.calls.some((args) => args[0] === "release" && args[1] === "upload"));
+  assert.equal(fake.calls.some((args) => args[0] === "release" && args[1] === "upload"), false);
+  assert.ok(fake.calls.some((args) => args[0] === "upload"
+    && args[1]?.startsWith("https://uploads.github.com/repos/owner/repository/releases/42/assets?name=")));
   assert.ok(fake.calls.some((args) => argument(args, "--method") === "PATCH"));
   assert.ok(fake.calls.some((args) => args[1] === "repos/owner/repository/releases/latest"));
   const drifted = fake.clone(published.assets);
@@ -456,7 +501,7 @@ test("publisher recovers its paginated partial draft without creating a second r
   await assert.rejects(() => publish(directory, fake), /left recoverable/);
   assert.equal(fake.release.draft, true);
   assert.equal(fake.release.assets.length, 1);
-  const creations = () => fake.calls.filter((args) => argument(args, "--method") === "POST").length;
+  const creations = () => releaseCreations(fake.calls);
   assert.equal(creations(), 1);
 
   fake.options.failUpload = false;
@@ -475,7 +520,34 @@ test("publisher reconciles ambiguous create, upload, and promotion transitions",
     const fake = new FakeGitHub(expected, { [option]: true });
     const published = await publish(directory, fake);
     assert.equal(published.immutable, true, option);
-    assert.equal(fake.calls.filter((args) => argument(args, "--method") === "POST").length, 1, option);
+    assert.equal(releaseCreations(fake.calls), 1, option);
+  }
+});
+
+test("publisher never mutates a foreign draft that replaces the verified draft before upload", async () => {
+  const { directory, expected } = await candidateDirectory();
+  const fake = new FakeGitHub(expected, { replaceDraftBeforeUpload: true });
+  await assert.rejects(() => publish(directory, fake), /left recoverable|replaced/);
+  assert.equal(fake.release.id, 84);
+  assert.equal(fake.release.body, "Foreign draft body");
+  assert.deepEqual(fake.release.assets, []);
+  const foreignMutations = fake.calls.filter((args) => isMutation(args) && args[1]?.includes("/releases/84"));
+  assert.deepEqual(foreignMutations, []);
+  assert.ok(fake.calls.some((args) => isMutation(args)
+    && args[1]?.startsWith("https://uploads.github.com/repos/owner/repository/releases/42/assets?name=")));
+});
+
+test("publisher rejects upload URLs not exactly bound to the verified GitHub draft", async () => {
+  const { directory, expected } = await candidateDirectory();
+  for (const [uploadUrl, pattern] of [
+    ["http://uploads.github.com/repos/owner/repository/releases/42/assets{?name,label}", /must use HTTPS/],
+    ["https://uploads.example.test/repos/owner/repository/releases/42/assets{?name,label}", /unexpected host/],
+    ["https://uploads.github.com/repos/owner/repository/releases/84/assets{?name,label}", /verified repository and release ID/],
+    ["https://uploads.github.com/repos/owner/repository/releases/42/assets?redirect=1{?name,label}", /unverified query/],
+  ]) {
+    const fake = new FakeGitHub(expected, { uploadUrl });
+    await assert.rejects(() => publish(directory, fake), pattern);
+    assert.equal(fake.calls.some((args) => args[0] === "upload"), false);
   }
 });
 
