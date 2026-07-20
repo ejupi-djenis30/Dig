@@ -1,14 +1,19 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { existsSync, lstatSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import { basename, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { parseChangelogSections } from "./validate-release.mjs";
+
+const repositoryRoot = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const stableTagPattern = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const repositoryPattern = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const sourceCommitPattern = /^[0-9a-f]{40}$/;
-const branchPattern = /^[A-Za-z0-9._/-]+$/;
+const branchPattern = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._/-]+$/;
+const checksumLinePattern = /^([0-9a-f]{64})  ([^/\\]+)$/;
 const githubApiVersion = "2026-03-10";
 
 function commandError(args, result) {
@@ -22,27 +27,24 @@ function runGitHubCli(args) {
   return result;
 }
 
-function missingRelease(result) {
-  return result.status !== 0 && /(?:HTTP\s+404(?:: Not Found)?|release not found|release does not exist)/i.test(`${result.stderr}\n${result.stdout}`);
+function apiArguments(endpoint, additional = []) {
+  return ["api", endpoint, "-H", `X-GitHub-Api-Version: ${githubApiVersion}`, ...additional];
 }
 
-function apiArguments(endpoint) {
-  return ["api", "-H", `X-GitHub-Api-Version: ${githubApiVersion}`, endpoint];
-}
-
-function getJson({ endpoint, run }) {
-  const args = apiArguments(endpoint);
+function runChecked(args, run) {
   const result = run(args);
   if (result.status !== 0) throw commandError(args, result);
+  return result;
+}
+
+function getJson({ endpoint, run, additional = [] }) {
+  const args = apiArguments(endpoint, additional);
+  const result = runChecked(args, run);
   try {
     return JSON.parse(result.stdout);
   } catch (error) {
     throw new Error(`GitHub returned invalid JSON for ${endpoint}: ${error.message}`);
   }
-}
-
-async function sha256(path) {
-  return createHash("sha256").update(await readFile(path)).digest("hex");
 }
 
 export async function localAssetManifest(directory) {
@@ -54,102 +56,123 @@ export async function localAssetManifest(directory) {
     assert.ok(entry.isFile(), `Release assets must be regular files: ${entry.name}`);
     const path = resolve(root, entry.name);
     assert.equal(basename(path), entry.name, `Unsafe release asset name: ${entry.name}`);
-    manifest.push({ name: entry.name, path, digest: `sha256:${await sha256(path)}` });
+    const bytes = await readFile(path);
+    manifest.push({
+      name: entry.name,
+      path,
+      size: bytes.byteLength,
+      digest: `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
+    });
   }
   return manifest;
 }
 
-export function verifyPublishedAssets(expected, published) {
+async function verifyLocalChecksumManifest(directory, manifest) {
+  const checksumAssets = manifest.filter(({ name }) => name === "SHA256SUMS");
+  assert.equal(checksumAssets.length, 1, "Release candidate must contain exactly one SHA256SUMS asset.");
+  const physicalLines = (await readFile(resolve(directory, "SHA256SUMS"), "utf8")).split(/\r?\n/);
+  assert.equal(physicalLines.at(-1), "", "SHA256SUMS must end with one newline.");
+  const lines = physicalLines.slice(0, -1);
+  assert.ok(lines.length > 0, "SHA256SUMS must not be empty.");
+  const entries = lines.map((line) => {
+    const match = line.match(checksumLinePattern);
+    assert.ok(match, `Malformed SHA256SUMS entry: ${line}`);
+    return { digest: `sha256:${match[1]}`, name: match[2] };
+  });
+  const expected = manifest
+    .filter(({ name }) => name !== "SHA256SUMS")
+    .map(({ name, digest }) => ({ name, digest }));
+  assert.deepEqual(entries, expected, "SHA256SUMS must bind every non-manifest asset exactly once in lexical order.");
+  return checksumAssets[0];
+}
+
+function normalizedRemoteAssets(published) {
   assert.ok(Array.isArray(published), "GitHub did not return a release asset inventory.");
-  const normalized = published
-    .map(({ name, digest }) => ({ name, digest }))
+  const ids = new Set();
+  const names = new Set();
+  return published
+    .map((asset) => {
+      assert.ok(Number.isSafeInteger(asset?.id) && asset.id > 0, "GitHub returned an asset with an invalid ID.");
+      assert.equal(ids.has(asset.id), false, `GitHub returned duplicate asset ID ${asset.id}.`);
+      assert.equal(names.has(asset.name), false, `GitHub returned duplicate release asset ${asset.name}.`);
+      ids.add(asset.id);
+      names.add(asset.name);
+      return { name: asset.name, digest: asset.digest, size: asset.size };
+    })
     .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+export function verifyPublishedAssets(expected, published) {
   assert.deepEqual(
-    normalized,
-    expected.map(({ name, digest }) => ({ name, digest })),
-    "Published release assets or digests do not match the verified candidate.",
+    normalizedRemoteAssets(published),
+    expected.map(({ name, digest, size }) => ({ name, digest, size })),
+    "Published release assets, sizes, or digests do not match the verified candidate.",
   );
 }
 
-function verifyDraftAssetsBelongToCandidate(expected, published) {
+function verifyRecoverableDraftAssets(expected, published) {
   assert.ok(Array.isArray(published), "GitHub did not return a draft asset inventory.");
-  const expectedByName = new Map(expected.map(({ name, digest }) => [name, digest]));
-  for (const { name, digest } of published) {
-    const expectedDigest = expectedByName.get(name);
-    assert.ok(
-      expectedDigest && (digest === expectedDigest || digest === null || digest === undefined),
-      `Refusing to delete a draft containing an unknown or modified asset: ${name}`,
-    );
-  }
-}
-
-function viewRelease({ tag, repository, fields, run }) {
-  const args = ["release", "view", tag, "--repo", repository, "--json", fields.join(",")];
-  const result = run(args);
-  if (result.status !== 0) return { args, result };
-  try {
-    return { args, result, release: JSON.parse(result.stdout) };
-  } catch (error) {
-    throw new Error(`GitHub returned invalid release JSON for ${tag}: ${error.message}`);
-  }
-}
-
-async function waitForVerifiedDraft({ tag, repository, expected, run, pause }) {
-  let lastError;
-  for (let attempt = 0; attempt < 12; attempt += 1) {
-    const viewed = viewRelease({
-      tag,
-      repository,
-      fields: ["assets", "databaseId", "isDraft", "tagName"],
-      run,
-    });
-    try {
-      if (!viewed.release) throw commandError(viewed.args, viewed.result);
-      assert.equal(viewed.release.tagName, tag, "GitHub returned the wrong release tag.");
-      assert.equal(viewed.release.isDraft, true, "The release candidate must remain a draft during verification.");
-      assert.ok(Number.isSafeInteger(viewed.release.databaseId), "GitHub did not return a numeric release ID.");
-      verifyPublishedAssets(expected, viewed.release.assets);
-      return viewed.release.databaseId;
-    } catch (error) {
-      lastError = error;
-      if (attempt < 11) await pause(Math.min(2 ** attempt, 10) * 1000);
+  const expectedByName = new Map(expected.map((asset) => [asset.name, asset]));
+  const ids = new Set();
+  const names = new Set();
+  for (const asset of published) {
+    assert.ok(Number.isSafeInteger(asset?.id) && asset.id > 0, "GitHub draft contains an asset with an invalid ID.");
+    assert.equal(ids.has(asset.id), false, `GitHub draft contains duplicate asset ID ${asset.id}.`);
+    assert.equal(names.has(asset.name), false, `GitHub draft contains duplicate asset ${asset.name}.`);
+    ids.add(asset.id);
+    names.add(asset.name);
+    const local = expectedByName.get(asset.name);
+    assert.ok(local, `GitHub draft contains a foreign asset: ${asset.name}`);
+    if (asset.digest !== null && asset.digest !== undefined) {
+      assert.equal(asset.digest, local.digest, `GitHub draft contains a modified asset: ${asset.name}`);
+    }
+    if (asset.size !== null && asset.size !== undefined) {
+      assert.equal(asset.size, local.size, `GitHub draft contains an asset with the wrong size: ${asset.name}`);
     }
   }
-  throw lastError;
 }
 
-function deleteVerifiedDraft({ tag, repository, expected, run }) {
-  const viewed = viewRelease({
-    tag,
-    repository,
-    fields: ["assets", "isDraft", "tagName"],
-    run,
-  });
-  if (!viewed.release) {
-    return missingRelease(viewed.result) ? undefined : commandError(viewed.args, viewed.result);
-  }
-  try {
-    assert.equal(viewed.release.tagName, tag, `Refusing to delete a release other than ${tag}.`);
-    assert.equal(viewed.release.isDraft, true, `Refusing to delete ${tag} because it is no longer a draft.`);
-    verifyDraftAssetsBelongToCandidate(expected, viewed.release.assets);
-  } catch (error) {
-    return error;
-  }
-  const deleteArguments = ["release", "delete", tag, "--repo", repository, "--yes"];
-  const deleted = run(deleteArguments);
-  return deleted.status === 0 ? undefined : commandError(deleteArguments, deleted);
+function validateReleaseIdentity(release, contract) {
+  assert.ok(release && typeof release === "object" && !Array.isArray(release), "GitHub Release must be an object.");
+  assert.ok(Number.isSafeInteger(release.id) && release.id > 0, "GitHub Release has an invalid ID.");
+  assert.equal(release.tag_name, contract.tag, "GitHub Release returned the wrong tag.");
+  assert.equal(release.target_commitish, contract.sourceCommit, "GitHub Release targets the wrong source commit.");
+  assert.equal(release.name, contract.title, "GitHub Release has the wrong title.");
+  assert.equal(release.body, contract.body, "GitHub Release has a foreign or stale release contract.");
+  assert.equal(release.prerelease, false, "GitHub Release must not be a prerelease.");
+  assert.ok(Array.isArray(release.assets), "GitHub Release is missing its asset inventory.");
 }
 
-function requireCurrentDefaultBranch({ repository, defaultBranch, sourceCommit, run }) {
-  const commit = getJson({
-    endpoint: `repos/${repository}/commits/${encodeURIComponent(defaultBranch)}`,
-    run,
-  });
-  assert.equal(
-    commit.sha,
-    sourceCommit,
-    `Tagged source ${sourceCommit} is no longer the current ${defaultBranch} commit.`,
-  );
+function validateDraftRelease(release, contract) {
+  validateReleaseIdentity(release, contract);
+  assert.equal(release.draft, true, `Refusing to modify published release ${contract.tag}.`);
+  assert.ok(typeof release.upload_url === "string" && release.upload_url !== "", "GitHub draft is missing its upload URL.");
+}
+
+function validatePublishedRelease(release, contract) {
+  validateReleaseIdentity(release, contract);
+  assert.equal(release.draft, false, `GitHub Release ${contract.tag} remained a draft.`);
+  assert.equal(release.immutable, true, `Published GitHub Release ${contract.tag} is not immutable.`);
+}
+
+function listReleaseForTag({ repository, tag, run }) {
+  const matches = [];
+  for (let page = 1; page <= 100; page += 1) {
+    const releases = getJson({
+      endpoint: `repos/${repository}/releases?per_page=100&page=${page}`,
+      run,
+    });
+    assert.ok(Array.isArray(releases), "GitHub did not return a release list.");
+    matches.push(...releases.filter((release) => release?.tag_name === tag));
+    if (releases.length < 100) break;
+    assert.notEqual(page, 100, "GitHub release pagination exceeded the supported limit.");
+  }
+  assert.ok(matches.length <= 1, `GitHub contains multiple releases for ${tag}; refusing ambiguous recovery.`);
+  return matches[0];
+}
+
+function releaseById({ repository, releaseId, run }) {
+  return getJson({ endpoint: `repos/${repository}/releases/${releaseId}`, run });
 }
 
 function resolveRemoteTag({ repository, tag, run }) {
@@ -163,106 +186,311 @@ function resolveRemoteTag({ repository, tag, run }) {
     assert.match(object.sha ?? "", sourceCommitPattern, `Remote tag ${tag} has an invalid target SHA.`);
     if (object.type === "commit") return object.sha;
     assert.equal(object.type, "tag", `Remote tag ${tag} targets unsupported object type ${object.type}.`);
-    assert.ok(!visited.has(object.sha), `Remote tag ${tag} contains a tag-object cycle.`);
+    assert.equal(visited.has(object.sha), false, `Remote tag ${tag} contains a tag-object cycle.`);
     visited.add(object.sha);
     object = getJson({ endpoint: `repos/${repository}/git/tags/${object.sha}`, run }).object;
   }
   throw new Error(`Remote tag ${tag} exceeds the supported annotated-tag depth.`);
 }
 
-function requireSourceBinding({ repository, defaultBranch, tag, sourceCommit, run }) {
-  requireCurrentDefaultBranch({ repository, defaultBranch, sourceCommit, run });
+function remoteBranchHead({ repository, branch, run }) {
+  const ref = getJson({
+    endpoint: `repos/${repository}/git/ref/heads/${encodeURIComponent(branch)}`,
+    run,
+  });
+  assert.equal(ref?.object?.type, "commit", `Default branch ${branch} does not resolve directly to a commit.`);
+  assert.match(ref.object.sha ?? "", sourceCommitPattern, `Default branch ${branch} has an invalid SHA.`);
+  return ref.object.sha;
+}
+
+function requireCommitInBranch({ repository, sourceCommit, branchHead, run }) {
+  if (branchHead === sourceCommit) return;
+  const comparison = getJson({
+    endpoint: `repos/${repository}/compare/${sourceCommit}...${branchHead}`,
+    run,
+  });
+  assert.ok(
+    ["ahead", "identical"].includes(comparison.status) && comparison.merge_base_commit?.sha === sourceCommit,
+    `Verified source ${sourceCommit} is not contained in the current default branch.`,
+  );
+}
+
+function requireRemoteSourceBinding({ repository, defaultBranch, tag, sourceCommit, run }) {
   assert.equal(
     resolveRemoteTag({ repository, tag, run }),
     sourceCommit,
     `Remote tag ${tag} does not resolve to the verified source commit.`,
   );
+  const repositoryMetadata = getJson({ endpoint: `repos/${repository}`, run });
+  assert.equal(repositoryMetadata.default_branch, defaultBranch, "Workflow default branch no longer matches GitHub repository metadata.");
+  const before = remoteBranchHead({ repository, branch: defaultBranch, run });
+  requireCommitInBranch({ repository, sourceCommit, branchHead: before, run });
+  const after = remoteBranchHead({ repository, branch: defaultBranch, run });
+  if (after !== before) requireCommitInBranch({ repository, sourceCommit, branchHead: after, run });
+  assert.equal(
+    resolveRemoteTag({ repository, tag, run }),
+    sourceCommit,
+    `Remote tag ${tag} changed during source verification.`,
+  );
 }
 
-async function waitForPublishedRelease({ releaseId, tag, repository, expected, run, pause }) {
+function requireRemoteTag({ repository, tag, sourceCommit, run, phase }) {
+  assert.equal(
+    resolveRemoteTag({ repository, tag, run }),
+    sourceCommit,
+    `Remote tag ${tag} changed during ${phase}.`,
+  );
+}
+
+async function releaseContract({ root, tag, sourceCommit, checksumAsset }) {
+  const version = tag.slice(1);
+  const changelog = await readFile(resolve(root, "CHANGELOG.md"), "utf8");
+  const sections = parseChangelogSections(changelog).filter((section) => section.version === version);
+  assert.equal(sections.length, 1, `CHANGELOG.md must contain one ${version} section for release notes.`);
+  const notes = sections[0].body.join("\n").trim();
+  assert.ok(notes.split("\n").some((line) => /^[-*+]\s+\S/.test(line)), "Release notes must contain a change item.");
+  const title = `DIG ${version}`;
+  const body = [
+    "## Changes",
+    "",
+    notes,
+    "",
+    "---",
+    "Release provenance",
+    "",
+    "- Contract: `dig-release/v1`",
+    `- Source commit: \`${sourceCommit}\``,
+    `- Candidate manifest: \`${checksumAsset.digest}\``,
+  ].join("\n");
+  return { tag, title, body, sourceCommit };
+}
+
+function createDraftRelease({ repository, contract, run }) {
+  return getJson({
+    endpoint: `repos/${repository}/releases`,
+    run,
+    additional: [
+      "--method", "POST",
+      "-f", `tag_name=${contract.tag}`,
+      "-f", `target_commitish=${contract.sourceCommit}`,
+      "-f", `name=${contract.title}`,
+      "-f", `body=${contract.body}`,
+      "-F", "draft=true",
+      "-F", "prerelease=false",
+      "-F", "generate_release_notes=false",
+    ],
+  });
+}
+
+function deleteDraftAsset({ repository, releaseId, assetId, contract, run }) {
+  const args = apiArguments(`repos/${repository}/releases/assets/${assetId}`, ["--method", "DELETE"]);
+  const result = run(args);
+  if (result.status === 0) return;
+  const reconciled = releaseById({ repository, releaseId, run });
+  validateDraftRelease(reconciled, contract);
+  if (reconciled.assets.some((asset) => asset.id === assetId)) throw commandError(args, result);
+}
+
+function resetRecoverableDraft({ repository, release, contract, expected, run }) {
+  const current = releaseById({ repository, releaseId: release.id, run });
+  assert.equal(current.id, release.id, "GitHub returned a different release during draft recovery.");
+  validateDraftRelease(current, contract);
+  verifyRecoverableDraftAssets(expected, current.assets);
+  for (const asset of current.assets) {
+    deleteDraftAsset({ repository, releaseId: current.id, assetId: asset.id, contract, run });
+  }
+  const clean = releaseById({ repository, releaseId: current.id, run });
+  validateDraftRelease(clean, contract);
+  assert.equal(clean.assets.length, 0, `GitHub draft ${contract.tag} still has assets after reset.`);
+  return clean;
+}
+
+function verifyDraftInventory({ repository, releaseId, contract, expected, run }) {
+  const draft = releaseById({ repository, releaseId, run });
+  assert.equal(draft.id, releaseId, "GitHub returned a different release during draft verification.");
+  validateDraftRelease(draft, contract);
+  verifyPublishedAssets(expected, draft.assets);
+  return draft;
+}
+
+async function waitForDraftInventory({ repository, releaseId, contract, expected, run, pause }) {
   let lastError;
-  for (let attempt = 0; attempt < 12; attempt += 1) {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
     try {
-      const release = getJson({ endpoint: `repos/${repository}/releases/tags/${encodeURIComponent(tag)}`, run });
-      const latest = getJson({ endpoint: `repos/${repository}/releases/latest`, run });
-      assert.equal(release.id, releaseId, "GitHub returned a different release after promotion.");
-      assert.equal(release.tag_name, tag, "GitHub returned the wrong published tag.");
-      assert.equal(release.draft, false, "GitHub release remained a draft.");
-      assert.equal(release.immutable, true, "Published GitHub release is not immutable.");
-      assert.equal(latest.id, releaseId, "GitHub release was not promoted to latest.");
-      assert.equal(latest.tag_name, tag, "GitHub latest release points to the wrong tag.");
-      verifyPublishedAssets(expected, release.assets);
-      return;
+      return verifyDraftInventory({ repository, releaseId, contract, expected, run });
     } catch (error) {
       lastError = error;
-      if (attempt < 11) await pause(Math.min(2 ** attempt, 10) * 1000);
+      if (attempt < 9) await pause(Math.min(2 ** attempt, 10) * 1000);
     }
   }
   throw lastError;
 }
 
+async function uploadReleaseAssets({ directory, tag, repository, releaseId, contract, expected, run, pause }) {
+  const args = [
+    "release",
+    "upload",
+    tag,
+    ...expected.map(({ name }) => resolve(directory, name)),
+    "--repo",
+    repository,
+  ];
+  const result = run(args);
+  if (result.status === 0) return waitForDraftInventory({ repository, releaseId, contract, expected, run, pause });
+  try {
+    return await waitForDraftInventory({ repository, releaseId, contract, expected, run, pause });
+  } catch (reconciliationError) {
+    throw new Error(
+      `${commandError(args, result).message}. The contract-bound draft was left recoverable; inventory reconciliation failed: ${reconciliationError.message}`,
+      { cause: reconciliationError },
+    );
+  }
+}
+
+function verifyPublishedState({ repository, releaseId, contract, expected, run, requireLatest }) {
+  const published = releaseById({ repository, releaseId, run });
+  assert.equal(published.id, releaseId, "GitHub returned a different release ID after publication.");
+  validatePublishedRelease(published, contract);
+  verifyPublishedAssets(expected, published.assets);
+  requireRemoteTag({
+    repository,
+    tag: contract.tag,
+    sourceCommit: contract.sourceCommit,
+    run,
+    phase: "published-release verification",
+  });
+  if (requireLatest) {
+    const latest = getJson({ endpoint: `repos/${repository}/releases/latest`, run });
+    assert.equal(latest.id, releaseId, `Published release ${contract.tag} is not the latest release.`);
+    assert.equal(latest.tag_name, contract.tag, "GitHub latest release points to the wrong tag.");
+  }
+  return published;
+}
+
+async function waitForPublishedState({ repository, releaseId, contract, expected, run, pause }) {
+  let lastError;
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    try {
+      return verifyPublishedState({ repository, releaseId, contract, expected, run, requireLatest: true });
+    } catch (error) {
+      lastError = error;
+      if (attempt < 9) await pause(Math.min(2 ** attempt, 10) * 1000);
+    }
+  }
+  throw lastError;
+}
+
+function checkedInLicenseExists(root) {
+  return ["LICENSE", "LICENSE.md", "LICENSE.txt"].some((name) => {
+    const path = resolve(root, name);
+    return existsSync(path) && lstatSync(path).isFile();
+  });
+}
+
 export async function publishReleaseCandidate({
+  root = repositoryRoot,
   directory,
   tag,
   repository,
   defaultBranch,
   sourceCommit,
+  eventName = process.env.GITHUB_EVENT_NAME,
+  refType = process.env.GITHUB_REF_TYPE,
+  publicationAuthorized = process.env.RELEASE_PUBLICATION_ENABLED === "true",
+  licensePresent = checkedInLicenseExists(root),
   run = runGitHubCli,
   pause = (milliseconds) => new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds)),
 }) {
+  assert.equal(publicationAuthorized, true, "Release publication is disabled until every contributor approves a project license.");
+  assert.equal(licensePresent, true, "Release publication requires an approved, checked-in license.");
+  assert.equal(eventName, "push", "Release publication requires a trusted tag-push event.");
+  assert.equal(refType, "tag", "Release publication requires a trusted tag-push event.");
   assert.match(tag, stableTagPattern, "Only stable v<major>.<minor>.<patch> tags may be published.");
   assert.match(repository, repositoryPattern, "Repository must use the owner/name form.");
   assert.match(defaultBranch, branchPattern, "Default branch contains unsupported characters.");
   assert.match(sourceCommit, sourceCommitPattern, "Source commit must be a lowercase 40-character SHA.");
+
   const expected = await localAssetManifest(directory);
-  requireSourceBinding({ repository, defaultBranch, tag, sourceCommit, run });
+  const checksumAsset = await verifyLocalChecksumManifest(directory, expected);
+  const contract = await releaseContract({ root, tag, sourceCommit, checksumAsset });
 
-  const existing = viewRelease({ tag, repository, fields: ["tagName"], run });
-  if (existing.release) throw new Error(`Release ${tag} already exists; releases are immutable.`);
-  if (!missingRelease(existing.result)) throw commandError(existing.args, existing.result);
+  let release = listReleaseForTag({ repository, tag, run });
+  if (release?.draft === false) {
+    requireRemoteSourceBinding({ repository, defaultBranch, tag, sourceCommit, run });
+    return verifyPublishedState({ repository, releaseId: release.id, contract, expected, run, requireLatest: false });
+  }
 
-  const version = tag.slice(1);
-  const createArguments = [
-    "release",
-    "create",
-    tag,
-    ...expected.map(({ path }) => path),
-    "--repo",
-    repository,
-    "--draft",
-    "--verify-tag",
-    "--title",
-    `DIG ${version}`,
-    "--generate-notes",
-  ];
-
-  let promoted = false;
-  try {
-    const created = run(createArguments);
-    if (created.status !== 0) throw commandError(createArguments, created);
-
-    const releaseId = await waitForVerifiedDraft({ tag, repository, expected, run, pause });
-    requireSourceBinding({ repository, defaultBranch, tag, sourceCommit, run });
-    const promotionArguments = [
-      "release",
-      "edit",
-      tag,
-      "--repo",
-      repository,
-      "--draft=false",
-      "--latest",
-    ];
-    const promotionResult = run(promotionArguments);
-    if (promotionResult.status !== 0) throw commandError(promotionArguments, promotionResult);
-    promoted = true;
-
-    await waitForPublishedRelease({ releaseId, tag, repository, expected, run, pause });
-  } catch (error) {
-    if (!promoted) {
-      const cleanupError = deleteVerifiedDraft({ tag, repository, expected, run });
-      if (cleanupError) error.message += ` Cleanup also failed: ${cleanupError.message}`;
+  if (release) {
+    validateDraftRelease(release, contract);
+    requireRemoteSourceBinding({ repository, defaultBranch, tag, sourceCommit, run });
+  } else {
+    requireRemoteSourceBinding({ repository, defaultBranch, tag, sourceCommit, run });
+    try {
+      release = createDraftRelease({ repository, contract, run });
+    } catch (createError) {
+      try {
+        release = listReleaseForTag({ repository, tag, run });
+      } catch (reconciliationError) {
+        throw new Error(`${createError.message}. Draft creation reconciliation failed: ${reconciliationError.message}`, {
+          cause: reconciliationError,
+        });
+      }
+      if (!release) throw createError;
+      if (release.draft === false) {
+        return verifyPublishedState({ repository, releaseId: release.id, contract, expected, run, requireLatest: false });
+      }
     }
-    throw error;
+    validateDraftRelease(release, contract);
+    const listed = listReleaseForTag({ repository, tag, run });
+    assert.equal(listed?.id, release.id, "GitHub did not reconfirm the newly created draft by ID.");
+    validateDraftRelease(listed, contract);
+    release = listed;
+  }
+
+  release = resetRecoverableDraft({ repository, release, contract, expected, run });
+  await uploadReleaseAssets({
+    directory,
+    tag,
+    repository,
+    releaseId: release.id,
+    contract,
+    expected,
+    run,
+    pause,
+  });
+  requireRemoteSourceBinding({ repository, defaultBranch, tag, sourceCommit, run });
+  verifyDraftInventory({ repository, releaseId: release.id, contract, expected, run });
+  requireRemoteTag({ repository, tag, sourceCommit, run, phase: "final pre-publication verification" });
+
+  let transition;
+  try {
+    transition = getJson({
+      endpoint: `repos/${repository}/releases/${release.id}`,
+      run,
+      additional: ["--method", "PATCH", "-F", "draft=false", "-f", "make_latest=true"],
+    });
+  } catch (transitionError) {
+    const reconciled = releaseById({ repository, releaseId: release.id, run });
+    if (reconciled.draft !== false) throw transitionError;
+    transition = reconciled;
+  }
+  assert.equal(transition.id, release.id, "GitHub returned a different release during publication.");
+  assert.equal(transition.draft, false, `GitHub did not publish release ${tag}.`);
+
+  try {
+    return await waitForPublishedState({
+      repository,
+      releaseId: release.id,
+      contract,
+      expected,
+      run,
+      pause,
+    });
+  } catch (error) {
+    throw new Error(
+      `Immutable release ${tag} was published but final verification failed; manual review is required: ${error.message}`,
+      { cause: error },
+    );
   }
 }
 

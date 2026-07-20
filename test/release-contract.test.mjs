@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -9,6 +9,7 @@ import { gzipSync } from "node:zlib";
 
 import {
   assembleReleaseBundle,
+  parseChangelogSections,
   tarFiles,
   validateReleaseBundle,
   validateReleaseMetadata,
@@ -24,6 +25,12 @@ import {
 const VERSION = "2.1.1";
 const COMMIT = "a".repeat(40);
 const repositoryRoot = resolve(fileURLToPath(new URL("../", import.meta.url)));
+const temporaryDirectories = new Set();
+
+test.afterEach(async () => {
+  await Promise.all([...temporaryDirectories].map((directory) => rm(directory, { recursive: true, force: true })));
+  temporaryDirectories.clear();
+});
 
 function tarHeader(name, type, size = 0) {
   const header = Buffer.alloc(512);
@@ -45,7 +52,7 @@ test("release metadata and a stable tag stay synchronized", async () => {
   await assert.rejects(() => validateReleaseMetadata({ tag: `v${VERSION}-rc.1` }), /exactly/);
 });
 
-test("version validation rejects drift and npm publication", () => {
+test("version validation rejects drift, hidden headings, and npm publication", () => {
   const base = {
     packageJson: JSON.stringify({ name: "dig-gopher-explorer", version: VERSION, private: true, license: "UNLICENSED" }),
     packageLockJson: JSON.stringify({ version: VERSION, packages: { "": { version: VERSION } } }),
@@ -53,10 +60,17 @@ test("version validation rejects drift and npm publication", () => {
     cli: `process.stdout.write("DIG ${VERSION}\\n")`,
   };
   assert.equal(validateVersionTexts(base), VERSION);
-  assert.throws(() => validateVersionTexts({ ...base, packageJson: JSON.stringify({ name: "dig-gopher-explorer", version: VERSION, private: false, license: "UNLICENSED" }) }), /private/);
+  assert.throws(() => validateVersionTexts({
+    ...base,
+    packageJson: JSON.stringify({ name: "dig-gopher-explorer", version: VERSION, private: false, license: "UNLICENSED" }),
+  }), /private/);
   assert.throws(() => validateVersionTexts({ ...base, cli: 'process.stdout.write("DIG 9.9.9\\n")' }), /CLI version/);
   assert.throws(
     () => validateVersionTexts({ ...base, changelog: `<!-- ## ${VERSION} — 2026-07-20 -->` }),
+    /one real/,
+  );
+  assert.throws(
+    () => validateVersionTexts({ ...base, changelog: `<!-- hidden -->## ${VERSION} — 2026-07-20` }),
     /one real/,
   );
   assert.equal(
@@ -68,7 +82,7 @@ test("version validation rejects drift and npm publication", () => {
   );
   assert.throws(
     () => validateVersionTexts({ ...base, changelog: `<!-- unclosed\n## ${VERSION} — 2026-07-20` }),
-    /one real/,
+    /unclosed HTML comment/,
   );
   assert.throws(
     () => validateVersionTexts({ ...base, changelog: `\`\`\`md\n## ${VERSION} — 2026-07-20\n\`\`\`` }),
@@ -88,9 +102,34 @@ test("version validation rejects drift and npm publication", () => {
     }),
     /one real/,
   );
+  for (const tag of ["pre", "script", "style", "textarea"]) {
+    assert.throws(
+      () => validateVersionTexts({
+        ...base,
+        changelog: `<${tag}>\n## ${VERSION} — 2026-07-20\n</${tag}>`,
+      }),
+      /one real/,
+    );
+  }
+  assert.equal(
+    validateVersionTexts({
+      ...base,
+      changelog: `<PRE data-example>\n## ${VERSION} — 2026-07-19\n</PRE>\n## ${VERSION} — 2026-07-20`,
+    }),
+    VERSION,
+  );
+  assert.throws(
+    () => validateVersionTexts({ ...base, changelog: `<script>\n## ${VERSION} — 2026-07-20` }),
+    /unclosed raw HTML block/,
+  );
   assert.throws(
     () => validateVersionTexts({ ...base, changelog: `## ${VERSION} — 2026-02-30` }),
     /invalid date/,
+  );
+  assert.deepEqual(
+    parseChangelogSections(`## ${VERSION} — 2026-07-20\n- Released\n\n## Unreleased\n- Future`)
+      .find(({ version }) => version === VERSION).body,
+    ["- Released", ""],
   );
 });
 
@@ -177,254 +216,340 @@ test("tar validation rejects unexpected entry types and non-zero padding", () =>
   assert.throws(() => tarFiles(paddedArchive), /non-zero padding/);
 });
 
-function apiResult(args, {
-  expected,
-  defaultCommit = COMMIT,
-  tagCommit = COMMIT,
-  publishedImmutable = true,
-  latestId = 42,
-} = {}) {
-  const endpoint = args.at(-1);
-  let body;
-  if (endpoint === "repos/owner/repository/commits/main") body = { sha: defaultCommit };
-  else if (endpoint === "repos/owner/repository/git/ref/tags/v2.1.1") {
-    body = { object: { type: "commit", sha: tagCommit } };
-  } else if (endpoint === "repos/owner/repository/releases/tags/v2.1.1") {
-    body = {
-      id: 42,
-      tag_name: "v2.1.1",
-      draft: false,
-      immutable: publishedImmutable,
-      assets: expected.map(({ name, digest }) => ({ name, digest })),
-    };
-  } else if (endpoint === "repos/owner/repository/releases/latest") {
-    body = { id: latestId, tag_name: latestId === 42 ? "v2.1.1" : "v2.1.0" };
-  } else throw new Error(`Unexpected GitHub API call: ${endpoint}`);
-  return { status: 0, stdout: JSON.stringify(body), stderr: "" };
+async function candidateDirectory() {
+  const directory = await mkdtemp(join(tmpdir(), "dig-publisher-"));
+  temporaryDirectories.add(directory);
+  await writeFile(join(directory, "asset-a.txt"), "alpha");
+  await writeFile(join(directory, "asset-b.txt"), "beta");
+  const assets = await localAssetManifest(directory);
+  await writeFile(
+    join(directory, "SHA256SUMS"),
+    assets.map(({ name, digest }) => `${digest.slice("sha256:".length)}  ${name}`).join("\n") + "\n",
+  );
+  return { directory, expected: await localAssetManifest(directory) };
 }
 
-test("release publishing verifies source, digests, latest status, and immutability", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "dig-publish-contract-"));
-  await writeFile(join(directory, "asset-a.txt"), "alpha");
-  await writeFile(join(directory, "asset-b.txt"), "beta");
-  const expected = await localAssetManifest(directory);
-  const calls = [];
-  let viewCount = 0;
-  const run = (args) => {
-    calls.push(args);
-    if (args[0] === "api") return apiResult(args, { expected });
-    if (args[1] === "create" || args[1] === "edit") return { status: 0, stdout: "", stderr: "" };
-    if (args[1] === "view") {
-      viewCount += 1;
-      if (viewCount === 1) return { status: 1, stdout: "", stderr: "release not found" };
-      return {
-        status: 0,
-        stdout: JSON.stringify({
-          databaseId: 42,
-          tagName: "v2.1.1",
-          isDraft: true,
-          assets: expected.map(({ name, digest }) => ({ name, digest })),
-        }),
-        stderr: "",
-      };
-    }
-    throw new Error(`Unexpected gh call: ${args.join(" ")}`);
-  };
+function argument(args, flag) {
+  const index = args.indexOf(flag);
+  return index === -1 ? undefined : args[index + 1];
+}
 
-  try {
-    await publishReleaseCandidate({
-      directory,
-      tag: "v2.1.1",
-      repository: "owner/repository",
-      defaultBranch: "main",
-      sourceCommit: COMMIT,
-      run,
-      pause: async () => {},
-    });
-    assert.ok(calls.some((args) => args[1] === "create"));
-    assert.ok(calls.some((args) => args[1] === "edit"));
-    assert.equal(calls.filter((args) => args.at(-1) === "repos/owner/repository/git/ref/tags/v2.1.1").length, 2);
-    assert.ok(!calls.some((args) => args[1] === "delete"));
-    assert.throws(
-      () => verifyPublishedAssets(expected, [{ name: expected[0].name, digest: "sha256:wrong" }]),
-      /do not match/,
-    );
-  } finally {
-    await rm(directory, { recursive: true, force: true });
+function formValue(args, key) {
+  for (let index = 0; index < args.length - 1; index += 1) {
+    if (!["-f", "-F"].includes(args[index])) continue;
+    const value = args[index + 1];
+    if (value.startsWith(`${key}=`)) return value.slice(key.length + 1);
+  }
+  return undefined;
+}
+
+function ok(body = "") {
+  return { status: 0, stdout: typeof body === "string" ? body : JSON.stringify(body), stderr: "" };
+}
+
+function failed(message) {
+  return { status: 1, stdout: "", stderr: message };
+}
+
+class FakeGitHub {
+  constructor(expected, options = {}) {
+    this.expected = expected;
+    this.options = {
+      ambiguousCreate: false,
+      ambiguousPromotion: false,
+      ambiguousUpload: false,
+      branchContained: true,
+      defaultHead: COMMIT,
+      duplicateRelease: false,
+      failUpload: false,
+      paginate: false,
+      publishedImmutable: true,
+      tagCommit: COMMIT,
+      wrongLatest: false,
+      ...options,
+    };
+    this.calls = [];
+    this.release = null;
+    this.nextAssetId = 100;
+  }
+
+  clone(value) {
+    return value === null ? null : structuredClone(value);
+  }
+
+  remoteAssets(assets = this.expected) {
+    return assets.map(({ name, digest, size }) => ({
+      id: this.nextAssetId++,
+      name,
+      digest,
+      size,
+    }));
+  }
+
+  releaseList(endpoint) {
+    const page = Number(new URL(`https://api.test/${endpoint}`).searchParams.get("page"));
+    const releases = this.release ? [this.clone(this.release)] : [];
+    if (this.options.duplicateRelease && this.release) {
+      releases.push({ ...this.clone(this.release), id: this.release.id + 1 });
+    }
+    if (!this.options.paginate || !this.release) return releases;
+    if (page === 1) {
+      return Array.from({ length: 100 }, (_, index) => ({ id: 1_000 + index, tag_name: `v0.0.${index}` }));
+    }
+    return page === 2 ? releases : [];
+  }
+
+  api(args) {
+    const endpoint = args[1];
+    const method = argument(args, "--method") ?? "GET";
+    if (/^repos\/owner\/repository\/releases\?/.test(endpoint) && method === "GET") {
+      return ok(this.releaseList(endpoint));
+    }
+    if (endpoint === "repos/owner/repository" && method === "GET") return ok({ default_branch: "main" });
+    if (endpoint === "repos/owner/repository/git/ref/tags/v2.1.1" && method === "GET") {
+      return ok({ object: { type: "commit", sha: this.options.tagCommit } });
+    }
+    if (endpoint === "repos/owner/repository/git/ref/heads/main" && method === "GET") {
+      return ok({ object: { type: "commit", sha: this.options.defaultHead } });
+    }
+    if (endpoint === `repos/owner/repository/compare/${COMMIT}...${this.options.defaultHead}` && method === "GET") {
+      return ok({
+        status: this.options.branchContained ? "ahead" : "diverged",
+        merge_base_commit: { sha: this.options.branchContained ? COMMIT : "c".repeat(40) },
+      });
+    }
+    if (endpoint === "repos/owner/repository/releases" && method === "POST") {
+      this.release = {
+        id: 42,
+        tag_name: formValue(args, "tag_name"),
+        target_commitish: formValue(args, "target_commitish"),
+        name: formValue(args, "name"),
+        body: formValue(args, "body"),
+        draft: true,
+        prerelease: false,
+        immutable: false,
+        upload_url: "https://uploads.github.test/releases/42/assets{?name,label}",
+        assets: [],
+      };
+      if (this.options.ambiguousCreate) {
+        this.options.ambiguousCreate = false;
+        return failed("connection reset after draft creation");
+      }
+      return ok(this.clone(this.release));
+    }
+    const byId = endpoint.match(/^repos\/owner\/repository\/releases\/(\d+)$/);
+    if (byId && method === "GET") {
+      if (!this.release || Number(byId[1]) !== this.release.id) return failed("HTTP 404: Not Found");
+      const release = this.clone(this.release);
+      if (this.options.returnWrongId) release.id += 1;
+      return ok(release);
+    }
+    if (byId && method === "PATCH") {
+      if (!this.release || Number(byId[1]) !== this.release.id) return failed("HTTP 404: Not Found");
+      this.release.draft = false;
+      this.release.immutable = this.options.publishedImmutable;
+      if (this.options.ambiguousPromotion) {
+        this.options.ambiguousPromotion = false;
+        return failed("connection reset after publication");
+      }
+      return ok(this.clone(this.release));
+    }
+    const asset = endpoint.match(/^repos\/owner\/repository\/releases\/assets\/(\d+)$/);
+    if (asset && method === "DELETE") {
+      this.release.assets = this.release.assets.filter(({ id }) => id !== Number(asset[1]));
+      return ok();
+    }
+    if (endpoint === "repos/owner/repository/releases/latest" && method === "GET") {
+      return ok(this.options.wrongLatest
+        ? { id: 7, tag_name: "v2.1.0" }
+        : { id: this.release.id, tag_name: this.release.tag_name });
+    }
+    return failed(`Unexpected GitHub API call: ${method} ${endpoint}`);
+  }
+
+  run = (args) => {
+    this.calls.push([...args]);
+    if (args[0] === "api") return this.api(args);
+    if (args[0] === "release" && args[1] === "upload") {
+      const paths = args.slice(3, args.indexOf("--repo"));
+      const names = paths.map((path) => basename(path));
+      const assets = this.expected.filter(({ name }) => names.includes(name));
+      if (this.options.failUpload) {
+        this.release.assets = this.remoteAssets(assets.slice(0, 1));
+        return failed("upload interrupted");
+      }
+      this.release.assets = this.remoteAssets(assets);
+      if (this.options.ambiguousUpload) {
+        this.options.ambiguousUpload = false;
+        return failed("connection reset after upload");
+      }
+      return ok();
+    }
+    return failed(`Unexpected gh call: ${args.join(" ")}`);
+  };
+}
+
+function publish(directory, fake, overrides = {}) {
+  return publishReleaseCandidate({
+    directory,
+    tag: "v2.1.1",
+    repository: "owner/repository",
+    defaultBranch: "main",
+    sourceCommit: COMMIT,
+    eventName: "push",
+    refType: "tag",
+    publicationAuthorized: true,
+    licensePresent: true,
+    run: fake.run,
+    pause: async () => {},
+    ...overrides,
+  });
+}
+
+function isMutation(args) {
+  if (args[0] === "release" && args[1] === "upload") return true;
+  if (args[0] !== "api") return false;
+  return ["POST", "PATCH", "DELETE"].includes(argument(args, "--method"));
+}
+
+test("publisher binds an exact contract and promotes only the verified immutable candidate", async () => {
+  const { directory, expected } = await candidateDirectory();
+  const fake = new FakeGitHub(expected);
+  const published = await publish(directory, fake);
+  assert.equal(published.draft, false);
+  assert.equal(published.immutable, true);
+  assert.match(published.body, /dig-release\/v1/);
+  assert.match(published.body, new RegExp(COMMIT));
+  assert.match(published.body, new RegExp(expected.find(({ name }) => name === "SHA256SUMS").digest));
+  assert.ok(fake.calls.some((args) => args[0] === "release" && args[1] === "upload"));
+  assert.ok(fake.calls.some((args) => argument(args, "--method") === "PATCH"));
+  assert.ok(fake.calls.some((args) => args[1] === "repos/owner/repository/releases/latest"));
+  const drifted = fake.clone(published.assets);
+  drifted[0].digest = `sha256:${"0".repeat(64)}`;
+  assert.throws(() => verifyPublishedAssets(expected, drifted), /do not match/);
+});
+
+test("publisher recovers its paginated partial draft without creating a second release", async () => {
+  const { directory, expected } = await candidateDirectory();
+  const fake = new FakeGitHub(expected, { failUpload: true });
+  await assert.rejects(() => publish(directory, fake), /left recoverable/);
+  assert.equal(fake.release.draft, true);
+  assert.equal(fake.release.assets.length, 1);
+  const creations = () => fake.calls.filter((args) => argument(args, "--method") === "POST").length;
+  assert.equal(creations(), 1);
+
+  fake.options.failUpload = false;
+  fake.options.paginate = true;
+  await publish(directory, fake);
+  assert.equal(creations(), 1);
+  assert.ok(fake.calls.some((args) => args[1]?.endsWith("page=2")));
+  assert.ok(fake.calls.some((args) => argument(args, "--method") === "DELETE"));
+});
+
+test("publisher reconciles ambiguous create, upload, and promotion transitions", async () => {
+  const { directory, expected } = await candidateDirectory();
+  for (const option of ["ambiguousCreate", "ambiguousUpload", "ambiguousPromotion"]) {
+    const fake = new FakeGitHub(expected, { [option]: true });
+    const published = await publish(directory, fake);
+    assert.equal(published.immutable, true, option);
+    assert.equal(fake.calls.filter((args) => argument(args, "--method") === "POST").length, 1, option);
   }
 });
 
-test("release publishing cleans up a candidate draft after partial create failure", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "dig-publish-partial-"));
-  await writeFile(join(directory, "asset-a.txt"), "alpha");
-  await writeFile(join(directory, "asset-b.txt"), "beta");
-  const expected = await localAssetManifest(directory);
-  const calls = [];
-  let viewCount = 0;
-  const run = (args) => {
-    calls.push(args);
-    if (args[0] === "api") return apiResult(args, { expected });
-    if (args[1] === "create") return { status: 1, stdout: "", stderr: "upload failed" };
-    if (args[1] === "delete") return { status: 0, stdout: "", stderr: "" };
-    if (args[1] === "view") {
-      viewCount += 1;
-      if (viewCount === 1) return { status: 1, stdout: "", stderr: "HTTP 404: Not Found" };
-      return {
-        status: 0,
-        stdout: JSON.stringify({
-          tagName: "v2.1.1",
-          isDraft: true,
-          assets: expected.slice(0, 1).map(({ name }) => ({ name, digest: null })),
-        }),
-        stderr: "",
-      };
-    }
-    throw new Error(`Unexpected gh call: ${args.join(" ")}`);
-  };
-  try {
+test("publisher is mutation-free when the exact immutable release already exists", async () => {
+  const { directory, expected } = await candidateDirectory();
+  const fake = new FakeGitHub(expected);
+  await publish(directory, fake);
+  const mutationCount = fake.calls.filter(isMutation).length;
+  await publish(directory, fake);
+  assert.equal(fake.calls.filter(isMutation).length, mutationCount);
+
+  fake.release.body += "\nforeign edit";
+  await assert.rejects(() => publish(directory, fake), /foreign or stale release contract/);
+  assert.equal(fake.calls.filter(isMutation).length, mutationCount);
+});
+
+test("publisher rejects foreign, duplicate, stale-ID, and checksum-drifted release state", async () => {
+  const { directory, expected } = await candidateDirectory();
+
+  const foreign = new FakeGitHub(expected, { failUpload: true });
+  await assert.rejects(() => publish(directory, foreign), /left recoverable/);
+  foreign.options.failUpload = false;
+  foreign.release.assets.push({ id: 999, name: "foreign.txt", digest: `sha256:${"f".repeat(64)}`, size: 7 });
+  const beforeForeign = foreign.calls.filter(isMutation).length;
+  await assert.rejects(() => publish(directory, foreign), /foreign asset/);
+  assert.equal(foreign.calls.filter(isMutation).length, beforeForeign);
+
+  const duplicate = new FakeGitHub(expected, { failUpload: true });
+  await assert.rejects(() => publish(directory, duplicate), /left recoverable/);
+  duplicate.options.duplicateRelease = true;
+  await assert.rejects(() => publish(directory, duplicate), /multiple releases/);
+
+  const wrongId = new FakeGitHub(expected);
+  await publish(directory, wrongId);
+  wrongId.options.returnWrongId = true;
+  await assert.rejects(() => publish(directory, wrongId), /different release ID/);
+
+  const checksumDrift = new FakeGitHub(expected);
+  await publish(directory, checksumDrift);
+  checksumDrift.release.assets[0].digest = `sha256:${"0".repeat(64)}`;
+  await assert.rejects(() => publish(directory, checksumDrift), /do not match/);
+});
+
+test("publisher verifies remote tag and default-branch containment before any mutation", async () => {
+  const { directory, expected } = await candidateDirectory();
+  for (const options of [
+    { tagCommit: "b".repeat(40) },
+    { defaultHead: "b".repeat(40), branchContained: false },
+  ]) {
+    const fake = new FakeGitHub(expected, options);
     await assert.rejects(
-      () => publishReleaseCandidate({
-        directory,
-        tag: "v2.1.1",
-        repository: "owner/repository",
-        defaultBranch: "main",
-        sourceCommit: COMMIT,
-        run,
-        pause: async () => {},
-      }),
-      /upload failed/,
+      () => publish(directory, fake),
+      /does not resolve|not contained/,
     );
-    assert.ok(calls.some((args) => args[1] === "delete"));
-    assert.ok(!calls.some((args) => args[1] === "edit"));
-  } finally {
-    await rm(directory, { recursive: true, force: true });
+    assert.equal(fake.calls.filter(isMutation).length, 0);
+  }
+
+  const advanced = new FakeGitHub(expected, { defaultHead: "b".repeat(40), branchContained: true });
+  await publish(directory, advanced);
+  assert.ok(advanced.calls.some((args) => args[1]?.includes(`/compare/${COMMIT}...`)));
+});
+
+test("publisher fails closed after a mutable or non-latest publication", async () => {
+  const { directory, expected } = await candidateDirectory();
+  for (const [options, pattern] of [
+    [{ publishedImmutable: false }, /not immutable/],
+    [{ wrongLatest: true }, /not the latest release/],
+  ]) {
+    const fake = new FakeGitHub(expected, options);
+    await assert.rejects(() => publish(directory, fake), pattern);
+    assert.equal(fake.release.draft, false);
+    assert.equal(fake.calls.some((args) => argument(args, "--method") === "DELETE"), false);
   }
 });
 
-test("release publishing refuses to delete a draft with foreign assets", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "dig-publish-foreign-"));
-  await writeFile(join(directory, "asset.txt"), "verified");
-  const expected = await localAssetManifest(directory);
-  let viewCount = 0;
-  const calls = [];
-  const run = (args) => {
-    calls.push(args);
-    if (args[0] === "api") return apiResult(args, { expected });
-    if (args[1] === "create") return { status: 1, stdout: "", stderr: "upload failed" };
-    if (args[1] === "view") {
-      viewCount += 1;
-      if (viewCount === 1) return { status: 1, stdout: "", stderr: "release not found" };
-      return {
-        status: 0,
-        stdout: JSON.stringify({
-          tagName: "v2.1.1",
-          isDraft: true,
-          assets: [{ name: "foreign.txt", digest: "sha256:foreign" }],
-        }),
-        stderr: "",
-      };
-    }
-    throw new Error(`Unexpected gh call: ${args.join(" ")}`);
-  };
-  try {
-    await assert.rejects(
-      () => publishReleaseCandidate({
-        directory,
-        tag: "v2.1.1",
-        repository: "owner/repository",
-        defaultBranch: "main",
-        sourceCommit: COMMIT,
-        run,
-        pause: async () => {},
-      }),
-      /Cleanup also failed.*foreign\.txt/,
-    );
-    assert.ok(!calls.some((args) => args[1] === "delete"));
-  } finally {
-    await rm(directory, { recursive: true, force: true });
+test("publisher checks authorization, license, event, and checksum manifest before GitHub access", async () => {
+  const { directory, expected } = await candidateDirectory();
+  for (const [overrides, pattern] of [
+    [{ publicationAuthorized: false }, /every contributor approves/],
+    [{ licensePresent: false }, /checked-in license/],
+    [{ eventName: "workflow_dispatch" }, /tag-push event/],
+    [{ refType: "branch" }, /tag-push event/],
+  ]) {
+    const fake = new FakeGitHub(expected);
+    await assert.rejects(() => publish(directory, fake, overrides), pattern);
+    assert.equal(fake.calls.length, 0);
   }
-});
 
-test("release publishing fails closed when source bindings drift", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "dig-publish-preflight-"));
-  await writeFile(join(directory, "asset.txt"), "verified");
-  const expected = await localAssetManifest(directory);
-  try {
-    for (const [options, pattern] of [
-      [{ defaultCommit: "b".repeat(40) }, /no longer the current main commit/],
-      [{ tagCommit: "b".repeat(40) }, /does not resolve to the verified source commit/],
-    ]) {
-      const calls = [];
-      await assert.rejects(
-        () => publishReleaseCandidate({
-          directory,
-          tag: "v2.1.1",
-          repository: "owner/repository",
-          defaultBranch: "main",
-          sourceCommit: COMMIT,
-          run: (args) => {
-            calls.push(args);
-            if (args[0] === "api") return apiResult(args, { expected, ...options });
-            throw new Error(`Unexpected mutation: ${args.join(" ")}`);
-          },
-          pause: async () => {},
-        }),
-        pattern,
-      );
-      assert.ok(calls.every((args) => args[0] === "api"));
-    }
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-});
+  const repositoryLicenseGate = new FakeGitHub(expected);
+  await assert.rejects(
+    () => publish(directory, repositoryLicenseGate, { licensePresent: undefined }),
+    /checked-in license/,
+  );
+  assert.equal(repositoryLicenseGate.calls.length, 0);
 
-test("release publishing verifies immutable latest state after promotion without deleting it", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "dig-publish-promoted-"));
-  await writeFile(join(directory, "asset.txt"), "verified");
-  const expected = await localAssetManifest(directory);
-  try {
-    for (const [apiOptions, pattern] of [
-      [{ latestId: 7 }, /not promoted to latest/],
-      [{ publishedImmutable: false }, /not immutable/],
-    ]) {
-      const calls = [];
-      let viewCount = 0;
-      const run = (args) => {
-        calls.push(args);
-        if (args[0] === "api") return apiResult(args, { expected, ...apiOptions });
-        if (args[1] === "create" || args[1] === "edit") return { status: 0, stdout: "", stderr: "" };
-        if (args[1] === "view") {
-          viewCount += 1;
-          if (viewCount === 1) return { status: 1, stdout: "", stderr: "release not found" };
-          return {
-            status: 0,
-            stdout: JSON.stringify({
-              databaseId: 42,
-              tagName: "v2.1.1",
-              isDraft: true,
-              assets: expected.map(({ name, digest }) => ({ name, digest })),
-            }),
-            stderr: "",
-          };
-        }
-        throw new Error(`Unexpected gh call: ${args.join(" ")}`);
-      };
-      await assert.rejects(
-        () => publishReleaseCandidate({
-          directory,
-          tag: "v2.1.1",
-          repository: "owner/repository",
-          defaultBranch: "main",
-          sourceCommit: COMMIT,
-          run,
-          pause: async () => {},
-        }),
-        pattern,
-      );
-      assert.ok(calls.some((args) => args[1] === "edit"));
-      assert.ok(!calls.some((args) => args[1] === "delete"));
-    }
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
+  await writeFile(join(directory, "SHA256SUMS"), `${"0".repeat(64)}  asset-a.txt\n`);
+  const fake = new FakeGitHub(await localAssetManifest(directory));
+  await assert.rejects(() => publish(directory, fake), /bind every non-manifest asset/);
+  assert.equal(fake.calls.length, 0);
 });

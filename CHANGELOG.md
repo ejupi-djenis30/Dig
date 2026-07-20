@@ -5,6 +5,9 @@
 - Make the skip link reliably visible and usable for keyboard navigation.
 - Tie the stylesheet, application script and service-worker cache to one release version.
 - Prefer fresh static assets while retaining the last verified offline response as a fallback.
+- Keep release publication fail-closed until contributors approve and add a project license.
+- Recover only contract-bound drafts and reconcile interrupted release transitions safely.
+- Parse workflow permissions and changelog HTML blocks structurally to close validation bypasses.
 
 ## 2.1.0 — 2026-07-19
 

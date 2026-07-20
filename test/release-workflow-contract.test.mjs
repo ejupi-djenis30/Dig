@@ -34,6 +34,31 @@ test("release workflow keeps actions pinned and publication tag-only", () => {
     () => validateReleaseWorkflowText(workflow.replace('node-version: "22.23.1"', 'node-version: "22"')),
     /exact supported Node\.js runtime/,
   );
+  assert.throws(
+    () => validateReleaseWorkflowText(workflow.replace(
+      "    permissions:\n      contents: write\n      id-token: write\n      attestations: write\n      artifact-metadata: write",
+      "    permissions: write-all\n    env:\n      contents: write\n      id-token: write\n      attestations: write\n      artifact-metadata: write",
+    )),
+    /explicit mapping/,
+  );
+  assert.throws(
+    () => validateReleaseWorkflowText(workflow.replace(
+      "      artifact-metadata: write",
+      "      artifact-metadata: write\n      packages: write",
+    )),
+    /Publish permissions changed unexpectedly/,
+  );
+  assert.throws(
+    () => validateReleaseWorkflowText(workflow.replace("      contents: write", "      # contents: write")),
+    /Publish permissions changed unexpectedly/,
+  );
+  assert.throws(
+    () => validateReleaseWorkflowText(workflow.replace(
+      "    permissions:\n      contents: write",
+      "    permissions:\n      contents: write\n    permissions:\n      contents: write",
+    )),
+    /exactly one permissions mapping/,
+  );
 });
 
 test("release workflow keeps OIDC scoped and provenance ahead of publication", () => {
@@ -56,5 +81,28 @@ test("release workflow keeps OIDC scoped and provenance ahead of publication", (
   assert.throws(
     () => validateReleaseWorkflowText(workflow.replace("subject-path: release/SHA256SUMS", "subject-path: release/release-metadata.json")),
     /SHA256SUMS must receive its own attestation/,
+  );
+  assert.throws(
+    () => validateReleaseWorkflowText(workflow.replace('RELEASE_PUBLICATION_ENABLED: "false"', 'RELEASE_PUBLICATION_ENABLED: "true"')),
+    /must remain explicitly disabled/,
+  );
+  assert.throws(
+    () => validateReleaseWorkflowText(workflow.replace(
+      "    timeout-minutes: 10",
+      '    timeout-minutes: 10\n    env:\n      RELEASE_PUBLICATION_ENABLED: "true"',
+    )),
+    /must not be overridden/,
+  );
+  assert.throws(
+    () => validateReleaseWorkflowText(workflow.replace("name: Enforce release authorization gate", "name: Authorization removed")),
+    /authorization gate/,
+  );
+  assert.throws(
+    () => validateReleaseWorkflowText(workflow.replace("-f LICENSE.txt", "-e LICENSE.txt")),
+    /must check LICENSE\.txt/,
+  );
+  assert.throws(
+    () => validateReleaseWorkflowText(workflow.replace("! -L LICENSE.txt", "! -d LICENSE.txt")),
+    /reject a symlinked LICENSE\.txt/,
   );
 });

@@ -26,8 +26,10 @@ npm audit --omit=dev
 [`actionlint`](https://github.com/rhysd/actionlint) locally when it is available.
 
 Release metadata must stay synchronized across `package.json`, `package-lock.json`, the CLI version
-output and `CHANGELOG.md`. Pull requests run the release-candidate workflow, but only a matching
-`v<version>` tag on the current reviewed `main` commit can publish a release.
+output and `CHANGELOG.md`. Pull requests run the release-candidate workflow. Release publication is
+currently disabled because the project has no agreed reuse license. It must stay disabled until all
+contributors approve the terms, the repository contains the resulting license, and the publication
+gate and package metadata are updated together in review.
 
 To exercise the CLI, use a server you are allowed to contact:
 

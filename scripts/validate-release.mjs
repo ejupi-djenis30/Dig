@@ -10,11 +10,47 @@ const repositoryRoot = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const semanticVersionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const sourceCommitPattern = /^[0-9a-f]{40}$/;
 
-function releaseHeadings(changelog) {
-  const headings = [];
+function visibleOutsideHtmlComments(rawLine, state) {
+  let cursor = 0;
+  let visible = "";
+
+  while (cursor < rawLine.length) {
+    if (state.insideComment) {
+      const end = rawLine.indexOf("-->", cursor);
+      if (end === -1) return visible;
+      visible += " ";
+      state.insideComment = false;
+      cursor = end + 3;
+      continue;
+    }
+
+    const start = rawLine.indexOf("<!--", cursor);
+    const strayEnd = rawLine.indexOf("-->", cursor);
+    assert.ok(
+      strayEnd === -1 || (start !== -1 && start < strayEnd),
+      "CHANGELOG.md contains an HTML comment terminator without an opening marker.",
+    );
+    if (start === -1) return visible + rawLine.slice(cursor);
+    visible += `${rawLine.slice(cursor, start)} `;
+    state.insideComment = true;
+    cursor = start + 4;
+  }
+
+  return visible;
+}
+
+export function parseChangelogSections(changelog) {
+  const sections = [];
+  const commentState = { insideComment: false };
   let fence;
-  let insideComment = false;
+  let rawHtmlTag;
+
   for (const rawLine of changelog.split(/\r?\n/)) {
+    if (rawHtmlTag) {
+      if (new RegExp(`</${rawHtmlTag}\\s*>`, "i").test(rawLine)) rawHtmlTag = undefined;
+      continue;
+    }
+
     if (fence) {
       const closingFence = rawLine.match(/^ {0,3}(`+|~+)[ \t]*$/);
       if (closingFence && closingFence[1][0] === fence.marker && closingFence[1].length >= fence.length) {
@@ -22,11 +58,9 @@ function releaseHeadings(changelog) {
       }
       continue;
     }
-    if (insideComment) {
-      if (rawLine.includes("-->")) insideComment = false;
-      continue;
-    }
-    const openingFence = rawLine.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+
+    const line = visibleOutsideHtmlComments(rawLine, commentState);
+    const openingFence = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
     if (openingFence) {
       const marker = openingFence[1][0];
       if (marker === "~" || !openingFence[2].includes("`")) {
@@ -34,24 +68,34 @@ function releaseHeadings(changelog) {
         continue;
       }
     }
-    let line = "";
-    for (let index = 0; index < rawLine.length; ) {
-      if (rawLine.startsWith("<!--", index)) {
-        const commentEnd = rawLine.indexOf("-->", index + 4);
-        if (commentEnd === -1) {
-          insideComment = true;
-          break;
-        }
-        index = commentEnd + 3;
-      } else {
-        line += rawLine[index];
-        index += 1;
+
+    const rawHtml = line.match(/^ {0,3}<(pre|script|style|textarea)(?=[\s>])/i);
+    if (rawHtml) {
+      const tag = rawHtml[1].toLowerCase();
+      if (!new RegExp(`</${tag}\\s*>`, "i").test(line.slice(rawHtml.index + rawHtml[0].length))) {
+        rawHtmlTag = tag;
       }
+      continue;
     }
-    const heading = line.match(/^## ((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)) — (\d{4}-\d{2}-\d{2})\s*$/);
-    if (heading) headings.push({ version: heading[1], date: heading[2] });
+
+    const heading = line.match(/^##\s+(.+?)\s*#*\s*$/);
+    if (heading) {
+      const release = heading[1].match(/^((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)) — (\d{4}-\d{2}-\d{2})$/);
+      sections.push({
+        title: heading[1],
+        version: release?.[1],
+        date: release?.[2],
+        body: [],
+      });
+      continue;
+    }
+    if (sections.length > 0) sections.at(-1).body.push(line);
   }
-  return headings;
+
+  assert.equal(fence, undefined, "CHANGELOG.md contains an unclosed fenced code block.");
+  assert.equal(commentState.insideComment, false, "CHANGELOG.md contains an unclosed HTML comment.");
+  assert.equal(rawHtmlTag, undefined, "CHANGELOG.md contains an unclosed raw HTML block.");
+  return sections;
 }
 
 function isCalendarDate(value) {
@@ -148,7 +192,7 @@ export function validateVersionTexts({ packageJson, packageLockJson, changelog, 
   assert.equal(packageMetadata.license, "UNLICENSED", "Package licensing metadata changed unexpectedly.");
   assert.equal(lockMetadata.version, version, "package-lock.json must match package.json.");
   assert.equal(lockMetadata.packages?.[""]?.version, version, "The lockfile root version must match package.json.");
-  const matchingHeadings = releaseHeadings(changelog).filter((heading) => heading.version === version);
+  const matchingHeadings = parseChangelogSections(changelog).filter((heading) => heading.version === version);
   assert.equal(matchingHeadings.length, 1, `CHANGELOG.md must contain one real, dated ${version} heading.`);
   assert.ok(isCalendarDate(matchingHeadings[0].date), `CHANGELOG.md contains an invalid date for ${version}.`);
   assert.ok(cli.includes(`process.stdout.write("DIG ${version}\\n")`), "The CLI version must match package.json.");
