@@ -5,6 +5,8 @@ import { readFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { compareReleaseAssetNames } from "./release-order.mjs";
+
 const repositoryPattern = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const workflowPattern = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/;
 const commitPattern = /^[0-9a-f]{40}$/;
@@ -38,7 +40,7 @@ export function parseChecksumManifest(text) {
   assert.ok(entries.length > 0, "Checksum manifest is empty.");
   assert.deepEqual(
     entries.map(({ name }) => name),
-    [...entries.map(({ name }) => name)].sort(),
+    [...entries.map(({ name }) => name)].sort(compareReleaseAssetNames),
     "Checksum manifest must use lexical order.",
   );
   assert.equal(new Set(entries.map(({ name }) => name)).size, entries.length, "Checksum manifest contains duplicates.");

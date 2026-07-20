@@ -1,13 +1,13 @@
 const CACHE_PREFIX = "dig-protocol-explorer-";
-const CACHE_NAME = `${CACHE_PREFIX}v2.1.1`;
+const CACHE_NAME = `${CACHE_PREFIX}v2.1.2`;
 const CORE_ASSETS = [
   "./",
   "./index.html",
-  "./styles.css?v=2.1.1",
-  "./app.mjs?v=2.1.1",
-  "./protocol.mjs?v=2.1.1",
+  "./styles.css?v=2.1.2",
+  "./app.mjs?v=2.1.2",
+  "./protocol.mjs?v=2.1.2",
   "./manifest.webmanifest",
-  "./fixtures/root.txt?v=2.1.1",
+  "./fixtures/root.txt?v=2.1.2",
   "./assets/dig-mark.svg",
   "./assets/dig-lockup.svg",
 ];
