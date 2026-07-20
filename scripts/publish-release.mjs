@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, lstatSync, readFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -459,12 +459,17 @@ async function waitForPublishedState({ repository, releaseId, contract, expected
 
 function checkedInLicenseExists(root) {
   const path = resolve(root, "LICENSE");
-  if (!existsSync(path) || !lstatSync(path).isFile()) return false;
+  let descriptor;
   try {
-    validateMitLicenseText(readFileSync(path, "utf8"));
+    const noFollow = constants.O_NOFOLLOW ?? 0;
+    descriptor = openSync(path, constants.O_RDONLY | noFollow);
+    if (!fstatSync(descriptor).isFile()) return false;
+    validateMitLicenseText(readFileSync(descriptor, "utf8"));
     return true;
   } catch {
     return false;
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
   }
 }
 
