@@ -56,6 +56,45 @@ test("release workflow YAML AST rejects duplicate, shadow, alias, tag, and unsup
   rejects(`${workflow}\n---\nname: second document\n`, /exactly one YAML document/);
 });
 
+test("non-canonical YAML line separators cannot hide fail-open steps behind comments", () => {
+  const canonicalWorkflow = workflow.replaceAll("\r\n", "\n");
+  validateReleaseWorkflowText(canonicalWorkflow.replaceAll("\n", "\r\n"));
+
+  for (const [name, separator] of [
+    ["lone CR", "\r"],
+    ["NEL", "\u0085"],
+    ["LS", "\u2028"],
+    ["PS", "\u2029"],
+  ]) {
+    const executableStep = replaceOnce(
+      canonicalWorkflow,
+      "      - name: Enforce static publication approval",
+      `      # hidden before the static gate${separator}`
+        + `      - name: Injected executable step${separator}`
+        + `        shell: bash${separator}`
+        + `        run: exit 0${separator}`
+        + "      - name: Enforce static publication approval",
+    );
+    assert.throws(
+      () => validateReleaseWorkflowText(executableStep),
+      /forbidden (?:non-canonical YAML line separator|lone carriage return)/,
+      `${name} must not reveal an executable step after YAML comment parsing.`,
+    );
+
+    const continueOnError = replaceOnce(
+      canonicalWorkflow,
+      "      - name: Enforce static publication approval",
+      `      - name: Enforce static publication approval # hidden${separator}`
+        + "        continue-on-error: true",
+    );
+    assert.throws(
+      () => validateReleaseWorkflowText(continueOnError),
+      /forbidden (?:non-canonical YAML line separator|lone carriage return)/,
+      `${name} must not reveal continue-on-error after YAML comment parsing.`,
+    );
+  }
+});
+
 test("release workflow triggers and permissions are semantic exact mappings", () => {
   rejects(replaceOnce(workflow, "  pull_request:\n", "  pull_request_target:\n"), /missing, extra, or shadow keys/);
   rejects(

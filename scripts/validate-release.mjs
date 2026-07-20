@@ -18,8 +18,12 @@ const releaseTooling = {
 };
 
 const markdownParser = unified().use(remarkParse);
-const invisibleTextPattern = /[\p{Cf}\u115F\u1160\u3164\uFFA0]/gu;
-const standaloneUrlPattern = /\b(?:[a-z][a-z\d+.-]*:\/\/|www\.)[^\s<>{}\[\]]+/giu;
+const defaultIgnorableCodePointPattern = /\p{Default_Ignorable_Code_Point}/gu;
+const absoluteUriPattern = /\b[a-z][a-z\d+.-]*:[^\s<>{}\[\]]+/giu;
+const protocolRelativeUriPattern = /\/\/[^\s<>{}\[\]]+/gu;
+const networkLocationPattern = /(?<![\p{L}\p{N}._-])(?:(?:\d{1,3}\.){3}\d{1,3}|\[[0-9a-f:.]+\]|localhost)(?::\d{1,5})?(?:[/?#][^\s<>{}\[\]]*)?/giu;
+const emailAddressPattern = /[^\s<>{}\[\]@]+@(?:[\p{L}\p{N}](?:[\p{L}\p{N}-]{0,61}[\p{L}\p{N}])?\.)+[\p{L}]{2,63}/giu;
+const bareDomainPattern = /(?<![\p{L}\p{N}@._-])(?:www\.)?(?:[\p{L}\p{N}](?:[\p{L}\p{N}-]{0,61}[\p{L}\p{N}])?\.)+[\p{L}]{2,63}(?::\d{1,5})?(?:[/?#][^\s<>{}\[\]]*)?/giu;
 
 function visibleMarkdownText(node) {
   if (["text", "inlineCode", "code"].includes(node.type)) return node.value;
@@ -28,11 +32,15 @@ function visibleMarkdownText(node) {
 }
 
 function hasGenuineVisibleText(node) {
-  const textWithoutUrls = visibleMarkdownText(node)
+  const textWithoutLocations = visibleMarkdownText(node)
     .normalize("NFKC")
-    .replace(invisibleTextPattern, "")
-    .replace(standaloneUrlPattern, " ");
-  return /[\p{L}\p{N}]/u.test(textWithoutUrls);
+    .replace(defaultIgnorableCodePointPattern, "")
+    .replace(absoluteUriPattern, " ")
+    .replace(protocolRelativeUriPattern, " ")
+    .replace(networkLocationPattern, " ")
+    .replace(emailAddressPattern, " ")
+    .replace(bareDomainPattern, " ");
+  return /[\p{L}\p{N}]/u.test(textWithoutLocations);
 }
 
 function hasVisibleListItem(node) {
@@ -195,7 +203,7 @@ export function validateVersionTexts({ packageJson, packageLockJson, changelog, 
   assert.equal(
     matchingHeadings[0].hasVisibleNoteItem,
     true,
-    `CHANGELOG.md ${version} must contain a list item with visible non-whitespace text.`,
+    `CHANGELOG.md ${version} must contain a list item with substantive visible release-note text.`,
   );
   assert.ok(cli.includes(`process.stdout.write("DIG ${version}\\n")`), "The CLI version must match package.json.");
   if (tag !== undefined) assert.equal(tag, `v${version}`, `Release tag must be exactly v${version}.`);

@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { isAlias, isMap, isScalar, isSeq, parseAllDocuments } from "yaml";
 
 const remoteUsePattern = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*@[0-9a-f]{40}$/;
+const nonCanonicalYamlLineSeparatorPattern = /[\u0085\u2028\u2029]/u;
+const loneCarriageReturnPattern = /\r(?!\n)/u;
 
 const actions = Object.freeze({
   checkout: "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0",
@@ -213,8 +215,23 @@ const publishContracts = Object.freeze([
   },
 ]);
 
+function canonicalWorkflowText(workflow) {
+  assert.equal(typeof workflow, "string", "Release workflow source must be text.");
+  assert.equal(
+    nonCanonicalYamlLineSeparatorPattern.test(workflow),
+    false,
+    "Release workflow contains a forbidden non-canonical YAML line separator.",
+  );
+  assert.equal(
+    loneCarriageReturnPattern.test(workflow),
+    false,
+    "Release workflow contains a forbidden lone carriage return.",
+  );
+  return workflow.replaceAll("\r\n", "\n");
+}
+
 function parseWorkflow(workflow) {
-  const documents = parseAllDocuments(workflow, {
+  const documents = parseAllDocuments(canonicalWorkflowText(workflow), {
     schema: "core",
     strict: true,
     uniqueKeys: true,
