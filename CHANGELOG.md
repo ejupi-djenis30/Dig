@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.1.2 — 2026-07-20
+
+- Use one UTF-8 byte-ordering rule to generate and verify release checksum manifests.
+- Reject mixed-case asset inventories that do not follow the canonical release order.
+
 ## 2.1.1 — 2026-07-20
 
 - Make the skip link reliably visible and usable for keyboard navigation.

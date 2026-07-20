@@ -6,6 +6,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { compareReleaseAssetNames } from "./release-order.mjs";
 import { parseChangelogSections, validateMitLicenseText } from "./validate-release.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("../", import.meta.url)));
@@ -76,7 +77,7 @@ export async function localAssetManifest(directory) {
   const entries = await readdir(root, { withFileTypes: true });
   assert.ok(entries.length > 0, "The release candidate contains no assets.");
   const manifest = [];
-  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+  for (const entry of entries.sort((left, right) => compareReleaseAssetNames(left.name, right.name))) {
     assert.ok(entry.isFile(), `Release assets must be regular files: ${entry.name}`);
     const path = resolve(root, entry.name);
     assert.equal(basename(path), entry.name, `Unsafe release asset name: ${entry.name}`);
@@ -91,7 +92,7 @@ export async function localAssetManifest(directory) {
   return manifest;
 }
 
-async function verifyLocalChecksumManifest(directory, manifest) {
+export async function verifyLocalChecksumManifest(directory, manifest) {
   const checksumAssets = manifest.filter(({ name }) => name === "SHA256SUMS");
   assert.equal(checksumAssets.length, 1, "Release candidate must contain exactly one SHA256SUMS asset.");
   const physicalLines = (await readFile(resolve(directory, "SHA256SUMS"), "utf8")).split(/\r?\n/);
@@ -123,7 +124,7 @@ function normalizedRemoteAssets(published) {
       names.add(asset.name);
       return { name: asset.name, digest: asset.digest, size: asset.size };
     })
-    .sort((left, right) => left.name.localeCompare(right.name));
+    .sort((left, right) => compareReleaseAssetNames(left.name, right.name));
 }
 
 export function verifyPublishedAssets(expected, published) {
