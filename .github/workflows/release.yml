@@ -153,6 +153,7 @@ jobs:
           path: release
 
       - name: Reverify tag, default-branch source, inventory, and checksums
+        id: source
         shell: bash
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
@@ -163,6 +164,7 @@ jobs:
           [[ "${source_commit}" == "$(git rev-parse HEAD)" ]]
           default_head="$(git ls-remote --exit-code origin "refs/heads/${DEFAULT_BRANCH}" | cut -f1)"
           [[ "${source_commit}" == "${default_head}" ]]
+          printf 'source_commit=%s\n' "${source_commit}" >> "${GITHUB_OUTPUT}"
           node scripts/validate-release.mjs \
             --tag "${GITHUB_REF_NAME}" \
             --verify-bundle release \
@@ -173,6 +175,17 @@ jobs:
         with:
           subject-checksums: release/SHA256SUMS
 
+      - name: Verify release provenance before publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          node scripts/verify-attestations.mjs
+          --directory release
+          --repository "${{ github.repository }}"
+          --signer-workflow "${{ github.repository }}/.github/workflows/release.yml"
+          --source-commit "${{ steps.source.outputs.source_commit }}"
+          --source-ref "${{ github.ref }}"
+
       - name: Stage, verify, and publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -181,3 +194,5 @@ jobs:
           --directory release
           --tag "${{ github.ref_name }}"
           --repository "${{ github.repository }}"
+          --default-branch "${{ github.event.repository.default_branch }}"
+          --source-commit "${{ steps.source.outputs.source_commit }}"

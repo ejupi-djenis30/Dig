@@ -127,6 +127,7 @@ test("release publishing verifies every remote digest before promotion", async (
   let viewCount = 0;
   const run = (args) => {
     calls.push(args);
+    if (args[0] === "api") return { status: 0, stdout: `${COMMIT}\n`, stderr: "" };
     if (args[0] === "release" && args[1] === "create") return { status: 0, stdout: "", stderr: "" };
     if (args[0] === "release" && args[1] === "edit") return { status: 0, stdout: "", stderr: "" };
     if (args[0] === "release" && args[1] === "view") {
@@ -152,6 +153,8 @@ test("release publishing verifies every remote digest before promotion", async (
       directory,
       tag: "v2.1.1",
       repository: "owner/repository",
+      defaultBranch: "main",
+      sourceCommit: COMMIT,
       run,
       pause: async () => {},
     });
@@ -174,6 +177,7 @@ test("release publishing cleans up a draft that fails digest verification", asyn
   let firstView = true;
   const run = (args) => {
     calls.push(args);
+    if (args[0] === "api") return { status: 0, stdout: `${COMMIT}\n`, stderr: "" };
     if (args[1] === "view" && firstView) {
       firstView = false;
       return { status: 1, stdout: "", stderr: "HTTP 404: Not Found" };
@@ -199,6 +203,8 @@ test("release publishing cleans up a draft that fails digest verification", asyn
           directory,
           tag: "v2.1.1",
           repository: "owner/repository",
+          defaultBranch: "main",
+          sourceCommit: COMMIT,
           run,
           pause: async () => {},
         }),
@@ -219,6 +225,7 @@ test("release publishing never deletes a release after promotion", async () => {
   let viewCount = 0;
   const run = (args) => {
     calls.push(args);
+    if (args[0] === "api") return { status: 0, stdout: `${COMMIT}\n`, stderr: "" };
     if (args[1] === "view") {
       viewCount += 1;
       if (viewCount === 1) return { status: 1, stdout: "", stderr: "release not found" };
@@ -243,6 +250,8 @@ test("release publishing never deletes a release after promotion", async () => {
           directory,
           tag: "v2.1.1",
           repository: "owner/repository",
+          defaultBranch: "main",
+          sourceCommit: COMMIT,
           run,
           pause: async () => {},
         }),
@@ -250,6 +259,36 @@ test("release publishing never deletes a release after promotion", async () => {
     );
     assert.ok(calls.some((args) => args[1] === "edit"));
     assert.ok(!calls.some((args) => args[1] === "delete"));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("release publishing fails before mutation when the default branch advances", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "dig-publish-stale-"));
+  await writeFile(join(directory, "asset.txt"), "verified");
+  const calls = [];
+  const run = (args) => {
+    calls.push(args);
+    if (args[0] === "api") return { status: 0, stdout: `${"b".repeat(40)}\n`, stderr: "" };
+    throw new Error(`Unexpected gh call: ${args.join(" ")}`);
+  };
+  try {
+    await assert.rejects(
+      () =>
+        publishReleaseCandidate({
+          directory,
+          tag: "v2.1.1",
+          repository: "owner/repository",
+          defaultBranch: "main",
+          sourceCommit: COMMIT,
+          run,
+          pause: async () => {},
+        }),
+      /no longer the current main commit/,
+    );
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0][0], "api");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

@@ -7,6 +7,8 @@ import { pathToFileURL } from "node:url";
 
 const stableTagPattern = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const repositoryPattern = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+const sourceCommitPattern = /^[0-9a-f]{40}$/;
+const branchPattern = /^[A-Za-z0-9._/-]+$/;
 
 function commandError(args, result) {
   const detail = (result.stderr || result.stdout || `exit ${result.status}`).trim();
@@ -93,16 +95,66 @@ function deleteVerifiedDraft({ tag, repository, run }) {
   return deleted.status === 0 ? undefined : commandError(deleteArguments, deleted);
 }
 
+function requireCurrentDefaultBranch({ repository, defaultBranch, sourceCommit, run }) {
+  const argumentsList = [
+    "api",
+    `repos/${repository}/commits/${encodeURIComponent(defaultBranch)}`,
+    "--jq",
+    ".sha",
+  ];
+  const result = run(argumentsList);
+  if (result.status !== 0) throw commandError(argumentsList, result);
+  assert.equal(
+    result.stdout.trim(),
+    sourceCommit,
+    `Tagged source ${sourceCommit} is no longer the current ${defaultBranch} commit.`,
+  );
+}
+
+async function waitForPublishedRelease({ tag, repository, expected, run, pause }) {
+  let lastError;
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const argumentsList = [
+      "release",
+      "view",
+      tag,
+      "--repo",
+      repository,
+      "--json",
+      "assets,isDraft,isLatest,tagName",
+    ];
+    const result = run(argumentsList);
+    try {
+      if (result.status !== 0) throw commandError(argumentsList, result);
+      const release = JSON.parse(result.stdout);
+      assert.equal(release.tagName, tag, "GitHub returned the wrong published tag.");
+      assert.equal(release.isDraft, false, "GitHub release remained a draft.");
+      assert.equal(release.isLatest, true, "GitHub release was not promoted to latest.");
+      verifyPublishedAssets(expected, release.assets);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt < 11) await pause(Math.min(2 ** attempt, 10) * 1000);
+    }
+  }
+  throw lastError;
+}
+
 export async function publishReleaseCandidate({
   directory,
   tag,
   repository,
+  defaultBranch,
+  sourceCommit,
   run = runGitHubCli,
   pause = (milliseconds) => new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds)),
 }) {
   assert.match(tag, stableTagPattern, "Only stable v<major>.<minor>.<patch> tags may be published.");
   assert.match(repository, repositoryPattern, "Repository must use the owner/name form.");
+  assert.match(defaultBranch, branchPattern, "Default branch contains unsupported characters.");
+  assert.match(sourceCommit, sourceCommitPattern, "Source commit must be a lowercase 40-character SHA.");
   const expected = await localAssetManifest(directory);
+  requireCurrentDefaultBranch({ repository, defaultBranch, sourceCommit, run });
 
   const existing = run(["release", "view", tag, "--repo", repository, "--json", "tagName"]);
   if (existing.status === 0) throw new Error(`Release ${tag} already exists; releases are immutable.`);
@@ -128,6 +180,7 @@ export async function publishReleaseCandidate({
   let promoted = false;
   try {
     await waitForVerifiedDraft({ tag, repository, expected, run, pause });
+    requireCurrentDefaultBranch({ repository, defaultBranch, sourceCommit, run });
     const promotionResult = run([
       "release",
       "edit",
@@ -140,21 +193,7 @@ export async function publishReleaseCandidate({
     if (promotionResult.status !== 0) throw commandError(["release", "edit", tag], promotionResult);
     promoted = true;
 
-    const finalResult = run([
-      "release",
-      "view",
-      tag,
-      "--repo",
-      repository,
-      "--json",
-      "assets,isDraft,isLatest,tagName",
-    ]);
-    if (finalResult.status !== 0) throw commandError(["release", "view", tag], finalResult);
-    const release = JSON.parse(finalResult.stdout);
-    assert.equal(release.tagName, tag, "GitHub returned the wrong published tag.");
-    assert.equal(release.isDraft, false, "GitHub release remained a draft.");
-    assert.equal(release.isLatest, true, "GitHub release was not promoted to latest.");
-    verifyPublishedAssets(expected, release.assets);
+    await waitForPublishedRelease({ tag, repository, expected, run, pause });
   } catch (error) {
     if (!promoted) {
       const cleanupError = deleteVerifiedDraft({ tag, repository, run });
@@ -169,12 +208,15 @@ function parseArguments(args) {
   for (let index = 0; index < args.length; index += 2) {
     const name = args[index];
     const value = args[index + 1];
-    assert.ok(["--directory", "--tag", "--repository"].includes(name), `Unknown argument: ${name}`);
+    assert.ok(
+      ["--directory", "--tag", "--repository", "--default-branch", "--source-commit"].includes(name),
+      `Unknown argument: ${name}`,
+    );
     assert.ok(value && !value.startsWith("--"), `${name} requires a value.`);
     assert.ok(!values.has(name), `${name} was supplied more than once.`);
     values.set(name, value);
   }
-  for (const required of ["--directory", "--tag", "--repository"]) {
+  for (const required of ["--directory", "--tag", "--repository", "--default-branch", "--source-commit"]) {
     assert.ok(values.has(required), `${required} is required.`);
   }
   return values;
@@ -186,5 +228,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     directory: args.get("--directory"),
     tag: args.get("--tag"),
     repository: args.get("--repository"),
+    defaultBranch: args.get("--default-branch"),
+    sourceCommit: args.get("--source-commit"),
   });
 }
