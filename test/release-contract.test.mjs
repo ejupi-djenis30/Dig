@@ -24,7 +24,7 @@ import {
   verifyPublishedAssets,
 } from "../scripts/publish-release.mjs";
 
-const VERSION = "2.1.3";
+const VERSION = "2.1.4";
 const COMMIT = "a".repeat(40);
 const RELEASE_TOOLING = { "remark-parse": "11.0.0", unified: "11.0.5", yaml: "2.9.0" };
 const repositoryRoot = resolve(fileURLToPath(new URL("../", import.meta.url)));
@@ -59,7 +59,7 @@ test("the checked-in license is the approved canonical MIT grant", async () => {
   const license = await readFile(resolve(repositoryRoot, "LICENSE"), "utf8");
   validateMitLicenseText(license);
   assert.throws(
-    () => validateMitLicenseText(license.replace("project contributors", "Another contributor")),
+    () => validateMitLicenseText(license.replace("project contributors", "a named collaborator")),
     /canonical MIT terms/,
   );
 });
