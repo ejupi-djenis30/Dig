@@ -53,7 +53,7 @@ try {
   if (values.help) {
     process.stdout.write(HELP);
   } else if (values.version) {
-    process.stdout.write("DIG 2.1.0\n");
+    process.stdout.write("DIG 2.1.1\n");
   } else {
     if (positionals.length !== 1) {
       throw new Error("Provide exactly one gopher:// address. Run with --help for examples.");

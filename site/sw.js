@@ -1,17 +1,21 @@
 const CACHE_PREFIX = "dig-protocol-explorer-";
-const CACHE_NAME = `${CACHE_PREFIX}v3`;
+const CACHE_NAME = `${CACHE_PREFIX}v2.1.1`;
 const CORE_ASSETS = [
   "./",
   "./index.html",
-  "./styles.css?v=2.1.0",
-  "./app.mjs?v=2.1.0",
-  "./protocol.mjs",
+  "./styles.css?v=2.1.1",
+  "./app.mjs?v=2.1.1",
+  "./protocol.mjs?v=2.1.1",
   "./manifest.webmanifest",
-  "./fixtures/root.txt",
+  "./fixtures/root.txt?v=2.1.1",
   "./assets/dig-mark.svg",
   "./assets/dig-lockup.svg",
   "./assets/demo-poster.svg",
 ];
+
+async function cachedOrError(request) {
+  return (await caches.match(request)) ?? Response.error();
+}
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -58,22 +62,20 @@ self.addEventListener("fetch", (event) => {
           }
           return response;
         })
-        .catch(() => caches.match("./")),
+        .catch(() => cachedOrError("./")),
     );
     return;
   }
 
   event.respondWith(
-    caches.match(request).then(
-      (cached) =>
-        cached ??
-        fetch(request).then(async (response) => {
-          if (response.ok && response.type === "basic") {
-            const cache = await caches.open(CACHE_NAME);
-            await cache.put(request, response.clone());
-          }
-          return response;
-        }),
-    ),
+    fetch(request)
+      .then(async (response) => {
+        if (response.ok && response.type === "basic") {
+          const cache = await caches.open(CACHE_NAME);
+          await cache.put(request, response.clone());
+        }
+        return response;
+      })
+      .catch(() => cachedOrError(request)),
   );
 });

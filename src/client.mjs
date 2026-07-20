@@ -1,4 +1,5 @@
 import net from "node:net";
+import { performance } from "node:perf_hooks";
 import { parseGopherUrl, selectorRequest } from "../site/protocol.mjs";
 
 export const DEFAULT_TIMEOUT_MS = 5_000;
@@ -15,6 +16,12 @@ function abortError() {
   const error = new Error("The Gopher request was aborted.");
   error.name = "AbortError";
   return error;
+}
+
+export function timeoutMessage(nowMs, deadlineAtMs, timeoutMs, idleTimeoutMs) {
+  return nowMs >= deadlineAtMs
+    ? `Request exceeded the ${timeoutMs} ms total deadline.`
+    : `Server was idle for more than ${idleTimeoutMs} ms.`;
 }
 
 export function fetchGopher(address, options = {}) {
@@ -47,11 +54,10 @@ export function fetchGopher(address, options = {}) {
     const chunks = [];
     let received = 0;
     let settled = false;
+    const deadlineAt = performance.now() + timeoutMs;
+    const deadlineError = () => new Error(`Request exceeded the ${timeoutMs} ms total deadline.`);
     const socket = net.createConnection({ host: target.host, port: target.port });
-    const deadline = setTimeout(
-      () => finish(new Error(`Request exceeded the ${timeoutMs} ms total deadline.`)),
-      timeoutMs,
-    );
+    const deadline = setTimeout(() => finish(deadlineError()), timeoutMs);
     const onAbort = () => finish(abortError());
 
     const finish = (error, value) => {
@@ -78,9 +84,14 @@ export function fetchGopher(address, options = {}) {
       const payload = Buffer.concat(chunks);
       finish(null, encoding === null ? payload : payload.toString(encoding));
     });
-    socket.on("timeout", () =>
-      finish(new Error(`Server was idle for more than ${idleTimeoutMs} ms.`)),
-    );
+    socket.on("timeout", () => {
+      // Under a busy event loop the idle callback can run after the absolute
+      // deadline even when its timer was scheduled first. Report the boundary
+      // that has actually expired instead of misclassifying the request.
+      finish(
+        new Error(timeoutMessage(performance.now(), deadlineAt, timeoutMs, idleTimeoutMs)),
+      );
+    });
     socket.on("error", (error) => finish(error));
   });
 }
