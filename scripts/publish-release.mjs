@@ -247,8 +247,8 @@ async function releaseContract({ root, tag, sourceCommit, checksumAsset }) {
   const changelog = await readFile(resolve(root, "CHANGELOG.md"), "utf8");
   const sections = parseChangelogSections(changelog).filter((section) => section.version === version);
   assert.equal(sections.length, 1, `CHANGELOG.md must contain one ${version} section for release notes.`);
-  const notes = sections[0].body.join("\n").trim();
-  assert.ok(notes.split("\n").some((line) => /^[-*+]\s+\S/.test(line)), "Release notes must contain a change item.");
+  const notes = sections[0].notes.join("\n\n").trim();
+  assert.ok(notes !== "", "Release notes must contain a top-level CommonMark list.");
   const title = `DIG ${version}`;
   const body = [
     "## Changes",

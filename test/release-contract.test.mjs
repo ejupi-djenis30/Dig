@@ -24,6 +24,7 @@ import {
 
 const VERSION = "2.1.1";
 const COMMIT = "a".repeat(40);
+const RELEASE_TOOLING = { "remark-parse": "11.0.0", unified: "11.0.5", yaml: "2.9.0" };
 const repositoryRoot = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const temporaryDirectories = new Set();
 
@@ -52,18 +53,43 @@ test("release metadata and a stable tag stay synchronized", async () => {
   await assert.rejects(() => validateReleaseMetadata({ tag: `v${VERSION}-rc.1` }), /exactly/);
 });
 
-test("version validation rejects drift, hidden headings, and npm publication", () => {
+test("version validation uses top-level CommonMark H2 sections and real list notes", () => {
   const base = {
-    packageJson: JSON.stringify({ name: "dig-gopher-explorer", version: VERSION, private: true, license: "UNLICENSED" }),
-    packageLockJson: JSON.stringify({ version: VERSION, packages: { "": { version: VERSION } } }),
-    changelog: `## ${VERSION} — 2026-07-20`,
+    packageJson: JSON.stringify({
+      name: "dig-gopher-explorer",
+      version: VERSION,
+      private: true,
+      license: "UNLICENSED",
+      devDependencies: RELEASE_TOOLING,
+    }),
+    packageLockJson: JSON.stringify({
+      version: VERSION,
+      packages: { "": { version: VERSION, devDependencies: RELEASE_TOOLING } },
+    }),
+    changelog: `## ${VERSION} — 2026-07-20\n\n- Released`,
     cli: `process.stdout.write("DIG ${VERSION}\\n")`,
   };
   assert.equal(validateVersionTexts(base), VERSION);
   assert.throws(() => validateVersionTexts({
     ...base,
-    packageJson: JSON.stringify({ name: "dig-gopher-explorer", version: VERSION, private: false, license: "UNLICENSED" }),
+    packageJson: JSON.stringify({
+      name: "dig-gopher-explorer",
+      version: VERSION,
+      private: false,
+      license: "UNLICENSED",
+      devDependencies: RELEASE_TOOLING,
+    }),
   }), /private/);
+  assert.throws(() => validateVersionTexts({
+    ...base,
+    packageJson: JSON.stringify({
+      name: "dig-gopher-explorer",
+      version: VERSION,
+      private: true,
+      license: "UNLICENSED",
+      devDependencies: { ...RELEASE_TOOLING, yaml: "^2.9.0" },
+    }),
+  }), /exactly pinned/);
   assert.throws(() => validateVersionTexts({ ...base, cli: 'process.stdout.write("DIG 9.9.9\\n")' }), /CLI version/);
   assert.throws(
     () => validateVersionTexts({ ...base, changelog: `<!-- ## ${VERSION} — 2026-07-20 -->` }),
@@ -76,61 +102,56 @@ test("version validation rejects drift, hidden headings, and npm publication", (
   assert.equal(
     validateVersionTexts({
       ...base,
-      changelog: `<!--\n## ${VERSION} — 2026-07-19\n-->\n## ${VERSION} — 2026-07-20 <!-- release note -->`,
+      changelog: `<!--\n## ${VERSION} — 2026-07-19\n-->\n## ${VERSION} — 2026-07-20 <!-- release note -->\n\n- Released`,
     }),
     VERSION,
   );
   assert.throws(
     () => validateVersionTexts({ ...base, changelog: `<!-- unclosed\n## ${VERSION} — 2026-07-20` }),
-    /unclosed HTML comment/,
-  );
-  assert.throws(
-    () => validateVersionTexts({ ...base, changelog: `\`\`\`md\n## ${VERSION} — 2026-07-20\n\`\`\`` }),
     /one real/,
   );
-  assert.throws(
-    () => validateVersionTexts({
-      ...base,
-      changelog: `\`\`\`\`md\nnot a release\n\`\`\`\n## ${VERSION} — 2026-07-20\n\`\`\`\``,
-    }),
-    /one real/,
-  );
-  assert.throws(
-    () => validateVersionTexts({
-      ...base,
-      changelog: `\`\`\`\`md\n\`\`\`<!-- still fenced -->\n## ${VERSION} — 2026-07-20\n\`\`\`\``,
-    }),
-    /one real/,
-  );
-  for (const tag of ["pre", "script", "style", "textarea"]) {
+  const hiddenHeadings = [
+    `\`\`\`md\n## ${VERSION} — 2026-07-20\n- Hidden\n\`\`\``,
+    `    ## ${VERSION} — 2026-07-20\n    - Hidden`,
+    `> ## ${VERSION} — 2026-07-20\n> - Hidden`,
+    `- item\n\n  ## ${VERSION} — 2026-07-20\n\n  - Hidden`,
+    `<pre>\n## ${VERSION} — 2026-07-20\n- Hidden\n</pre>`,
+    `<script>\n## ${VERSION} — 2026-07-20\n- Hidden\n</script>`,
+    `<style>\n## ${VERSION} — 2026-07-20\n- Hidden\n</style>`,
+    `<textarea>\n## ${VERSION} — 2026-07-20\n- Hidden\n</textarea>`,
+    `<!--\n## ${VERSION} — 2026-07-20\n- Hidden\n-->`,
+    `<?release\n## ${VERSION} — 2026-07-20\n- Hidden\n?>`,
+    `<!RELEASE\n## ${VERSION} — 2026-07-20\n- Hidden\n>`,
+    `<![CDATA[\n## ${VERSION} — 2026-07-20\n- Hidden\n]]>`,
+    `<div>\n## ${VERSION} — 2026-07-20\n- Hidden\n</div>`,
+    `<x-release>\n## ${VERSION} — 2026-07-20\n- Hidden\n\n`,
+  ];
+  for (const changelog of hiddenHeadings) {
     assert.throws(
-      () => validateVersionTexts({
-        ...base,
-        changelog: `<${tag}>\n## ${VERSION} — 2026-07-20\n</${tag}>`,
-      }),
+      () => validateVersionTexts({ ...base, changelog }),
       /one real/,
     );
   }
-  assert.equal(
-    validateVersionTexts({
-      ...base,
-      changelog: `<PRE data-example>\n## ${VERSION} — 2026-07-19\n</PRE>\n## ${VERSION} — 2026-07-20`,
-    }),
-    VERSION,
-  );
+  for (const changelog of [
+    `## ${VERSION} — 2026-07-20\n\n> - Quoted only`,
+    `## ${VERSION} — 2026-07-20\n\n\`\`\`md\n- Fenced only\n\`\`\``,
+    `## ${VERSION} — 2026-07-20\n\n<div>\n- HTML only\n</div>`,
+  ]) assert.throws(() => validateVersionTexts({ ...base, changelog }), /top-level CommonMark list/);
+
+  for (const changelog of [
+    `   ## ${VERSION} — 2026-07-20\n\n- Indented ATX`,
+    `${VERSION} — 2026-07-20\n------------------\n\n- Setext`,
+  ]) assert.equal(validateVersionTexts({ ...base, changelog }), VERSION);
+
   assert.throws(
-    () => validateVersionTexts({ ...base, changelog: `<script>\n## ${VERSION} — 2026-07-20` }),
-    /unclosed raw HTML block/,
-  );
-  assert.throws(
-    () => validateVersionTexts({ ...base, changelog: `## ${VERSION} — 2026-02-30` }),
+    () => validateVersionTexts({ ...base, changelog: `## ${VERSION} — 2026-02-30\n\n- Invalid date` }),
     /invalid date/,
   );
-  assert.deepEqual(
-    parseChangelogSections(`## ${VERSION} — 2026-07-20\n- Released\n\n## Unreleased\n- Future`)
-      .find(({ version }) => version === VERSION).body,
-    ["- Released", ""],
-  );
+  const section = parseChangelogSections(
+    `## ${VERSION} — 2026-07-20\n\n> - Quoted\n\n\`\`\`md\n- Code\n\`\`\`\n\n- Released\n\n## Unreleased\n\n- Future`,
+  ).find(({ version }) => version === VERSION);
+  assert.deepEqual(section.notes, ["- Released"]);
+  assert.equal(section.body.includes("Future"), false);
 });
 
 test("SBOM normalization removes volatile metadata and canonicalizes object keys", () => {
@@ -440,6 +461,8 @@ test("publisher recovers its paginated partial draft without creating a second r
 
   fake.options.failUpload = false;
   fake.options.paginate = true;
+  fake.options.defaultHead = "b".repeat(40);
+  fake.options.branchContained = true;
   await publish(directory, fake);
   assert.equal(creations(), 1);
   assert.ok(fake.calls.some((args) => args[1]?.endsWith("page=2")));
@@ -461,8 +484,11 @@ test("publisher is mutation-free when the exact immutable release already exists
   const fake = new FakeGitHub(expected);
   await publish(directory, fake);
   const mutationCount = fake.calls.filter(isMutation).length;
+  fake.options.defaultHead = "b".repeat(40);
+  fake.options.branchContained = true;
   await publish(directory, fake);
   assert.equal(fake.calls.filter(isMutation).length, mutationCount);
+  assert.ok(fake.calls.some((args) => args[1]?.includes(`/compare/${COMMIT}...${"b".repeat(40)}`)));
 
   fake.release.body += "\nforeign edit";
   await assert.rejects(() => publish(directory, fake), /foreign or stale release contract/);

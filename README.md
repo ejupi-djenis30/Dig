@@ -26,6 +26,7 @@
 ```bash
 git clone https://github.com/ejupi-djenis30/Dig.git
 cd Dig
+npm ci --ignore-scripts
 npm test
 node bin/dig.mjs gopher://gopher.floodgap.com/1/
 ```
@@ -48,11 +49,20 @@ complete `SHA256SUMS` manifest. Tagged releases are accepted only when the tag m
 version and the tagged commit remains contained in reviewed `main`. Once publication is authorized,
 GitHub attests every release asset, including `SHA256SUMS`, and verifies the OIDC identity, source
 commit, tag ref and signer workflow. The publisher binds its draft to an exact source, checksum
-manifest and changelog contract. It can recover interrupted creates, uploads and promotions without
-adopting a foreign draft. Before promotion it rechecks the remote tag, default-branch containment,
-release ID and complete asset inventory. GitHub must report the result as latest and immutable.
-Rerunning the publisher succeeds without mutation only when that immutable release still matches the
-same contract, ID, assets, sizes and digests.
+manifest and changelog contract. Release headings and notes come from a CommonMark AST, so examples,
+quotes and raw HTML cannot impersonate a release section. The workflow itself is read as a YAML AST:
+duplicate or shadow keys, aliases, explicit tags, unexpected jobs, permission shortcuts and unpinned
+actions fail closed. The publisher can recover interrupted creates, uploads and promotions without
+adopting a foreign draft, even after reviewed `main` advances beyond the tagged commit. Before
+promotion it rechecks the remote tag, default-branch ancestry, release ID and complete asset
+inventory. GitHub must report the result as latest and immutable. Rerunning the publisher succeeds
+without mutation only when that immutable release still matches the same contract, ID, assets, sizes
+and digests.
+
+CI and Pages run on pinned Ubuntu and exact Node.js patch releases. Pages builds the tested static
+artifact with read-only source access; only its separate deployment job receives `pages: write` and
+an OIDC token. YAML and CommonMark parsers are exact-pinned development dependencies and are not
+shipped as CLI runtime dependencies.
 
 This integrity evidence does not grant a software license. Publication is deliberately disabled
 before any attestation or release mutation while the repository remains `UNLICENSED`. Enabling it

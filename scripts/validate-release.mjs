@@ -4,97 +4,62 @@ import { copyFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/pro
 import { relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
 import { validateReleaseWorkflowText } from "./validate-release-workflow.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const semanticVersionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const sourceCommitPattern = /^[0-9a-f]{40}$/;
+const releaseTooling = {
+  "remark-parse": "11.0.0",
+  unified: "11.0.5",
+  yaml: "2.9.0",
+};
 
-function visibleOutsideHtmlComments(rawLine, state) {
-  let cursor = 0;
-  let visible = "";
+const markdownParser = unified().use(remarkParse);
 
-  while (cursor < rawLine.length) {
-    if (state.insideComment) {
-      const end = rawLine.indexOf("-->", cursor);
-      if (end === -1) return visible;
-      visible += " ";
-      state.insideComment = false;
-      cursor = end + 3;
-      continue;
-    }
+function markdownNodeText(node) {
+  if (node.type === "text" || node.type === "inlineCode") return node.value;
+  if (node.type === "image") return node.alt ?? "";
+  return Array.isArray(node.children) ? node.children.map(markdownNodeText).join("") : "";
+}
 
-    const start = rawLine.indexOf("<!--", cursor);
-    const strayEnd = rawLine.indexOf("-->", cursor);
-    assert.ok(
-      strayEnd === -1 || (start !== -1 && start < strayEnd),
-      "CHANGELOG.md contains an HTML comment terminator without an opening marker.",
-    );
-    if (start === -1) return visible + rawLine.slice(cursor);
-    visible += `${rawLine.slice(cursor, start)} `;
-    state.insideComment = true;
-    cursor = start + 4;
-  }
-
-  return visible;
+function sourceSlice(markdown, node) {
+  const start = node.position?.start?.offset;
+  const end = node.position?.end?.offset;
+  assert.ok(Number.isSafeInteger(start) && Number.isSafeInteger(end), "Markdown AST node is missing source offsets.");
+  return markdown.slice(start, end);
 }
 
 export function parseChangelogSections(changelog) {
+  const tree = markdownParser.parse(changelog);
+  assert.equal(tree.type, "root", "CHANGELOG.md did not produce a CommonMark document root.");
   const sections = [];
-  const commentState = { insideComment: false };
-  let fence;
-  let rawHtmlTag;
-
-  for (const rawLine of changelog.split(/\r?\n/)) {
-    if (rawHtmlTag) {
-      if (new RegExp(`</${rawHtmlTag}\\s*>`, "i").test(rawLine)) rawHtmlTag = undefined;
-      continue;
-    }
-
-    if (fence) {
-      const closingFence = rawLine.match(/^ {0,3}(`+|~+)[ \t]*$/);
-      if (closingFence && closingFence[1][0] === fence.marker && closingFence[1].length >= fence.length) {
-        fence = undefined;
-      }
-      continue;
-    }
-
-    const line = visibleOutsideHtmlComments(rawLine, commentState);
-    const openingFence = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
-    if (openingFence) {
-      const marker = openingFence[1][0];
-      if (marker === "~" || !openingFence[2].includes("`")) {
-        fence = { marker, length: openingFence[1].length };
-        continue;
-      }
-    }
-
-    const rawHtml = line.match(/^ {0,3}<(pre|script|style|textarea)(?=[\s>])/i);
-    if (rawHtml) {
-      const tag = rawHtml[1].toLowerCase();
-      if (!new RegExp(`</${tag}\\s*>`, "i").test(line.slice(rawHtml.index + rawHtml[0].length))) {
-        rawHtmlTag = tag;
-      }
-      continue;
-    }
-
-    const heading = line.match(/^##\s+(.+?)\s*#*\s*$/);
-    if (heading) {
-      const release = heading[1].match(/^((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)) — (\d{4}-\d{2}-\d{2})$/);
-      sections.push({
-        title: heading[1],
-        version: release?.[1],
-        date: release?.[2],
-        body: [],
-      });
-      continue;
-    }
-    if (sections.length > 0) sections.at(-1).body.push(line);
+  const headings = tree.children.flatMap((node, index) => node.type === "heading" && node.depth === 2
+    ? [{ node, index }]
+    : []);
+  for (const [headingIndex, heading] of headings.entries()) {
+    const title = markdownNodeText(heading.node).trim();
+    const release = title.match(/^((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)) — (\d{4}-\d{2}-\d{2})$/);
+    const nextHeading = headings[headingIndex + 1];
+    const bodyNodes = tree.children.slice(heading.index + 1, nextHeading?.index ?? tree.children.length);
+    const start = heading.node.position?.end?.offset;
+    const end = nextHeading?.node.position?.start?.offset ?? changelog.length;
+    assert.ok(Number.isSafeInteger(start) && Number.isSafeInteger(end), "CHANGELOG.md headings are missing source offsets.");
+    const bodySource = changelog
+      .slice(start, end)
+      .replace(/^\r?\n/, "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\n$/, "");
+    sections.push({
+      title,
+      version: release?.[1],
+      date: release?.[2],
+      body: bodySource === "" ? [] : bodySource.split("\n"),
+      notes: bodyNodes.filter(({ type }) => type === "list").map((node) => sourceSlice(changelog, node).trim()),
+    });
   }
-
-  assert.equal(fence, undefined, "CHANGELOG.md contains an unclosed fenced code block.");
-  assert.equal(commentState.insideComment, false, "CHANGELOG.md contains an unclosed HTML comment.");
-  assert.equal(rawHtmlTag, undefined, "CHANGELOG.md contains an unclosed raw HTML block.");
   return sections;
 }
 
@@ -190,11 +155,19 @@ export function validateVersionTexts({ packageJson, packageLockJson, changelog, 
   assert.equal(packageMetadata.name, "dig-gopher-explorer", "Unexpected package name.");
   assert.equal(packageMetadata.private, true, "The unlicensed package must remain private on npm.");
   assert.equal(packageMetadata.license, "UNLICENSED", "Package licensing metadata changed unexpectedly.");
+  assert.deepEqual(packageMetadata.dependencies ?? {}, {}, "The DIG CLI must not acquire runtime dependencies.");
+  assert.deepEqual(packageMetadata.devDependencies, releaseTooling, "Release parser tooling must remain exactly pinned.");
   assert.equal(lockMetadata.version, version, "package-lock.json must match package.json.");
   assert.equal(lockMetadata.packages?.[""]?.version, version, "The lockfile root version must match package.json.");
+  assert.deepEqual(
+    lockMetadata.packages?.[""]?.devDependencies,
+    releaseTooling,
+    "The lockfile root must pin the reviewed release parser tooling.",
+  );
   const matchingHeadings = parseChangelogSections(changelog).filter((heading) => heading.version === version);
   assert.equal(matchingHeadings.length, 1, `CHANGELOG.md must contain one real, dated ${version} heading.`);
   assert.ok(isCalendarDate(matchingHeadings[0].date), `CHANGELOG.md contains an invalid date for ${version}.`);
+  assert.ok(matchingHeadings[0].notes.length > 0, `CHANGELOG.md ${version} must contain a top-level CommonMark list.`);
   assert.ok(cli.includes(`process.stdout.write("DIG ${version}\\n")`), "The CLI version must match package.json.");
   if (tag !== undefined) assert.equal(tag, `v${version}`, `Release tag must be exactly v${version}.`);
   return version;

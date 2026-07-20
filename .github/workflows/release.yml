@@ -49,6 +49,9 @@ jobs:
           [[ "$(node --version)" == "v22.23.1" ]]
           [[ "$(npm --version)" == "10.9.8" ]]
 
+      - name: Install locked release tooling
+        run: npm ci --ignore-scripts
+
       - name: Validate synchronized release metadata and source
         id: metadata
         shell: bash
@@ -59,9 +62,11 @@ jobs:
           set -euo pipefail
           arguments=()
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            [[ "$(git rev-parse "${GITHUB_REF_NAME}^{commit}")" == "$(git rev-parse HEAD)" ]]
-            default_head="$(git ls-remote --exit-code origin "refs/heads/${DEFAULT_BRANCH}" | cut -f1)"
-            [[ "$(git rev-parse HEAD)" == "${default_head}" ]]
+            source_commit="$(git rev-parse "${GITHUB_REF_NAME}^{commit}")"
+            [[ "${source_commit}" == "$(git rev-parse HEAD)" ]]
+            git fetch --no-tags origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+            default_head="$(git rev-parse "refs/remotes/origin/${DEFAULT_BRANCH}^{commit}")"
+            git merge-base --is-ancestor "${source_commit}" "${default_head}"
             arguments+=(--tag "${GITHUB_REF_NAME}")
           elif [[ -n "${EXPECTED_TAG}" ]]; then
             arguments+=(--tag "${EXPECTED_TAG}")
@@ -69,11 +74,10 @@ jobs:
           version="$(node scripts/validate-release.mjs "${arguments[@]}")"
           printf 'version=%s\n' "${version}" >> "${GITHUB_OUTPUT}"
 
-      - name: Install, test, and audit
+      - name: Test and audit all dependencies
         run: |
-          npm ci --ignore-scripts
           npm run check
-          npm audit --omit=dev --audit-level=moderate
+          npm audit --audit-level=moderate
 
       - name: Build and smoke-test installable CLI package
         id: package
@@ -209,8 +213,9 @@ jobs:
           npm ci --ignore-scripts
           source_commit="$(git rev-parse "${GITHUB_REF_NAME}^{commit}")"
           [[ "${source_commit}" == "$(git rev-parse HEAD)" ]]
-          default_head="$(git ls-remote --exit-code origin "refs/heads/${DEFAULT_BRANCH}" | cut -f1)"
-          [[ "${source_commit}" == "${default_head}" ]]
+          git fetch --no-tags origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+          default_head="$(git rev-parse "refs/remotes/origin/${DEFAULT_BRANCH}^{commit}")"
+          git merge-base --is-ancestor "${source_commit}" "${default_head}"
           printf 'source_commit=%s\n' "${source_commit}" >> "${GITHUB_OUTPUT}"
           node scripts/validate-release.mjs \
             --tag "${GITHUB_REF_NAME}" \
