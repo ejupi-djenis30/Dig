@@ -3,6 +3,8 @@
 DIG is deliberately small: a bounded local Gopher client and a static protocol explorer. A change
 should make that scope easier to understand, test, or use.
 
+By participating, you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## Before opening an issue
 
 Use the issue forms and search for an existing report first. Never post private hostnames, IP
