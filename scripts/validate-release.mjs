@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
+import { hasSubstantiveReleaseNoteText } from "./release-note-content.mjs";
 import { validateReleaseWorkflowText } from "./validate-release-workflow.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("../", import.meta.url)));
@@ -18,12 +19,6 @@ const releaseTooling = {
 };
 
 const markdownParser = unified().use(remarkParse);
-const defaultIgnorableCodePointPattern = /\p{Default_Ignorable_Code_Point}/gu;
-const absoluteUriPattern = /\b[a-z][a-z\d+.-]*:[^\s<>{}\[\]]+/giu;
-const protocolRelativeUriPattern = /\/\/[^\s<>{}\[\]]+/gu;
-const networkLocationPattern = /(?<![\p{L}\p{N}._-])(?:(?:\d{1,3}\.){3}\d{1,3}|\[[0-9a-f:.]+\]|localhost)(?::\d{1,5})?(?:[/?#][^\s<>{}\[\]]*)?/giu;
-const emailAddressPattern = /[^\s<>{}\[\]@]+@(?:[\p{L}\p{N}](?:[\p{L}\p{N}-]{0,61}[\p{L}\p{N}])?\.)+[\p{L}]{2,63}/giu;
-const bareDomainPattern = /(?<![\p{L}\p{N}@._-])(?:www\.)?(?:[\p{L}\p{N}](?:[\p{L}\p{N}-]{0,61}[\p{L}\p{N}])?\.)+[\p{L}]{2,63}(?::\d{1,5})?(?:[/?#][^\s<>{}\[\]]*)?/giu;
 
 function visibleMarkdownText(node) {
   if (["text", "inlineCode", "code"].includes(node.type)) return node.value;
@@ -32,15 +27,7 @@ function visibleMarkdownText(node) {
 }
 
 function hasGenuineVisibleText(node) {
-  const textWithoutLocations = visibleMarkdownText(node)
-    .normalize("NFKC")
-    .replace(defaultIgnorableCodePointPattern, "")
-    .replace(absoluteUriPattern, " ")
-    .replace(protocolRelativeUriPattern, " ")
-    .replace(networkLocationPattern, " ")
-    .replace(emailAddressPattern, " ")
-    .replace(bareDomainPattern, " ");
-  return /[\p{L}\p{N}]/u.test(textWithoutLocations);
+  return hasSubstantiveReleaseNoteText(visibleMarkdownText(node));
 }
 
 function hasVisibleListItem(node) {
