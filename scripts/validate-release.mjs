@@ -20,7 +20,7 @@ const releaseTooling = {
 };
 const canonicalMitLicense = `MIT License
 
-Copyright (c) 2026 Djenis Ejupi and NobodyToListen
+Copyright (c) 2026 Djenis Ejupi and project contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.1.4 — 2026-07-20
+
+- Credit shared work collectively without publishing individual contributor identities.
+- Rebuild the Pages hero on a measured, symmetric protocol map with responsive keyboard support.
+- Keep release metadata, offline assets and the command-line version aligned after the privacy rewrite.
+
 ## 2.1.3 — 2026-07-20
 
 - Reconfirm a newly created GitHub draft by its unique ID with bounded backoff before uploading.
