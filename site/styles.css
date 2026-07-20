@@ -98,9 +98,6 @@ h1 em { color: var(--orange); font-family: Georgia, serif; font-weight: 400; }
 .packet-art > p { position: absolute; right: 8%; bottom: 5%; margin: 0; color: rgba(238,240,232,.5); font-family: monospace; font-size: .7rem; }
 
 .section { padding: clamp(5rem, 9vw, 9rem) 0; border-top: 1px solid var(--line); }
-.demo-reel { display:grid; grid-template-columns:minmax(17rem,.42fr) minmax(0,1fr); gap:3rem; align-items:end; }
-.demo-reel h2 { font-size:clamp(2.7rem,5vw,4.8rem); }
-.demo-reel video { display:block; width:100%; border:1px solid var(--line); border-radius:1.35rem; background:var(--ink); box-shadow:0 30px 70px rgba(16,19,19,.2); }
 .section-intro { display: grid; grid-template-columns: 1fr minmax(20rem,.55fr); gap: 1rem 4rem; align-items: end; margin-bottom: 3rem; }
 .section-intro .kicker { grid-column: 1/-1; }
 .section-intro h2, .history h2 { font-size: clamp(3.2rem, 6.6vw, 6.4rem); }
@@ -165,7 +162,7 @@ footer a { justify-self: end; color: var(--ink); font-weight: 800; }
   .header nav { display: none; }
   .hero { grid-template-columns: 1fr; }
   .packet-art { min-height: 32rem; }
-  .section-intro, .history, .demo-reel { grid-template-columns: 1fr; }
+  .section-intro, .history { grid-template-columns: 1fr; }
   .browser-grid { grid-template-columns: 1fr; }
   .menu-pane { border-right: 0; border-bottom: 1px solid rgba(238,240,232,.13); }
   .anatomy { grid-template-columns: repeat(2,1fr); }
