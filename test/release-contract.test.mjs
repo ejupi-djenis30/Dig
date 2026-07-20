@@ -43,6 +43,17 @@ test("version validation rejects drift and npm publication", () => {
     () => validateVersionTexts({ ...base, changelog: `<!-- ## ${VERSION} — 2026-07-20 -->` }),
     /one real/,
   );
+  assert.equal(
+    validateVersionTexts({
+      ...base,
+      changelog: `<!--\n## ${VERSION} — 2026-07-19\n-->\n## ${VERSION} — 2026-07-20 <!-- release note -->`,
+    }),
+    VERSION,
+  );
+  assert.throws(
+    () => validateVersionTexts({ ...base, changelog: `<!-- unclosed\n## ${VERSION} — 2026-07-20` }),
+    /one real/,
+  );
   assert.throws(
     () => validateVersionTexts({ ...base, changelog: `\`\`\`md\n## ${VERSION} — 2026-07-20\n\`\`\`` }),
     /one real/,

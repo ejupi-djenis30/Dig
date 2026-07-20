@@ -10,11 +10,36 @@ const repositoryRoot = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const semanticVersionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const sourceCommitPattern = /^[0-9a-f]{40}$/;
 
+function linesOutsideHtmlComments(markdown) {
+  const lines = [];
+  let line = "";
+  let insideComment = false;
+  for (let index = 0; index < markdown.length; ) {
+    if (insideComment && markdown.startsWith("-->", index)) {
+      insideComment = false;
+      index += 3;
+    } else if (!insideComment && markdown.startsWith("<!--", index)) {
+      insideComment = true;
+      index += 4;
+    } else {
+      const character = markdown[index];
+      if (character === "\n") {
+        lines.push(line.endsWith("\r") ? line.slice(0, -1) : line);
+        line = "";
+      } else if (!insideComment) {
+        line += character;
+      }
+      index += 1;
+    }
+  }
+  lines.push(line.endsWith("\r") ? line.slice(0, -1) : line);
+  return lines;
+}
+
 function releaseHeadings(changelog) {
-  const withoutComments = changelog.replace(/<!--[\s\S]*?-->/g, "");
   const headings = [];
   let fence;
-  for (const line of withoutComments.split(/\r?\n/)) {
+  for (const line of linesOutsideHtmlComments(changelog)) {
     const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})/);
     if (fenceMatch) {
       const marker = fenceMatch[1][0];
