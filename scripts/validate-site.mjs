@@ -42,13 +42,19 @@ for (const asset of ["styles.css", "app.mjs"]) {
     throw new Error(`index.html must cache-bust ${asset} with package version ${releaseVersion}.`);
   }
 }
+for (const asset of ["protocol.mjs", "fixtures/root.txt"]) {
+  const reference = asset === "protocol.mjs" ? `./${asset}?v=${releaseVersion}` : `${asset}?v=${releaseVersion}`;
+  if (!app.includes(reference)) {
+    throw new Error(`app.mjs must cache-bust ${asset} with package version ${releaseVersion}.`);
+  }
+}
 if (!app.includes(`./sw.js?v=${releaseVersion}`)) {
   throw new Error(`app.mjs must register the service worker with package version ${releaseVersion}.`);
 }
 if (!serviceWorker.includes(`\`${'${CACHE_PREFIX}'}v${releaseVersion}\``)) {
   throw new Error(`sw.js cache name must include package version ${releaseVersion}.`);
 }
-for (const asset of ["styles.css", "app.mjs"]) {
+for (const asset of ["styles.css", "app.mjs", "protocol.mjs", "fixtures/root.txt"]) {
   if (!serviceWorker.includes(`./${asset}?v=${releaseVersion}`)) {
     throw new Error(`sw.js must precache ${asset} with package version ${releaseVersion}.`);
   }

@@ -38,9 +38,13 @@ test("site assets and the service-worker cache roll over with every release", as
   assert.ok(changelog.includes(`## ${version} —`));
   assert.ok(html.includes(`styles.css?v=${version}`));
   assert.ok(html.includes(`app.mjs?v=${version}`));
+  assert.ok(app.includes(`./protocol.mjs?v=${version}`));
+  assert.ok(app.includes(`fixtures/root.txt?v=${version}`));
   assert.ok(app.includes(`./sw.js?v=${version}`));
   assert.ok(serviceWorker.includes(`\`${'${CACHE_PREFIX}'}v${version}\``));
   assert.ok(serviceWorker.includes(`./styles.css?v=${version}`));
   assert.ok(serviceWorker.includes(`./app.mjs?v=${version}`));
+  assert.ok(serviceWorker.includes(`./protocol.mjs?v=${version}`));
+  assert.ok(serviceWorker.includes(`./fixtures/root.txt?v=${version}`));
   assert.doesNotMatch(serviceWorker, /caches\.match\(request\)\.then/u);
 });

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import net from "node:net";
 import test from "node:test";
-import { fetchGopher } from "../src/client.mjs";
+import { fetchGopher, timeoutMessage } from "../src/client.mjs";
 
 test("requests a selector and returns a bounded response", async (context) => {
   const server = net.createServer((socket) => {
@@ -58,6 +58,11 @@ test("enforces a total deadline even when a server drips data", async (context) 
     fetchGopher(`gopher://127.0.0.1:${port}/0/drip`, { timeoutMs: 70, idleTimeoutMs: 50 }),
     /total deadline/,
   );
+});
+
+test("classifies delayed socket callbacks against the monotonic total deadline", () => {
+  assert.match(timeoutMessage(100, 100, 70, 50), /total deadline/);
+  assert.match(timeoutMessage(99.99, 100, 70, 50), /idle for more than 50 ms/);
 });
 
 test("sends a search query parsed from the Gopher URL", async (context) => {

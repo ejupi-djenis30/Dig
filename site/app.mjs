@@ -1,4 +1,4 @@
-import { itemType, parseGopherUrl, parseMenu } from "./protocol.mjs";
+import { itemType, parseGopherUrl, parseMenu } from "./protocol.mjs?v=2.1.1";
 
 const menu = document.querySelector("[data-menu]");
 const form = document.querySelector("[data-address-form]");
@@ -19,7 +19,7 @@ const fields = {
 let entries = [];
 let fixtureError = null;
 try {
-  const response = await fetch("fixtures/root.txt");
+  const response = await fetch("fixtures/root.txt?v=2.1.1");
   if (!response.ok) throw new Error(`Fixture request returned HTTP ${response.status}.`);
   entries = parseMenu(await response.text());
 } catch (error) {
