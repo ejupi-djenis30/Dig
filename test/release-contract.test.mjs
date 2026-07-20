@@ -12,6 +12,7 @@ import {
   parseChangelogSections,
   tarFiles,
   validateReleaseBundle,
+  validateMitLicenseText,
   validateReleaseMetadata,
   validateVersionTexts,
 } from "../scripts/validate-release.mjs";
@@ -53,18 +54,27 @@ test("release metadata and a stable tag stay synchronized", async () => {
   await assert.rejects(() => validateReleaseMetadata({ tag: `v${VERSION}-rc.1` }), /exactly/);
 });
 
+test("the checked-in license is the approved canonical MIT grant", async () => {
+  const license = await readFile(resolve(repositoryRoot, "LICENSE"), "utf8");
+  validateMitLicenseText(license);
+  assert.throws(
+    () => validateMitLicenseText(license.replace("NobodyToListen", "Another contributor")),
+    /canonical MIT terms/,
+  );
+});
+
 test("version validation uses top-level CommonMark H2 sections and real list notes", () => {
   const base = {
     packageJson: JSON.stringify({
       name: "dig-gopher-explorer",
       version: VERSION,
       private: true,
-      license: "UNLICENSED",
+      license: "MIT",
       devDependencies: RELEASE_TOOLING,
     }),
     packageLockJson: JSON.stringify({
       version: VERSION,
-      packages: { "": { version: VERSION, devDependencies: RELEASE_TOOLING } },
+      packages: { "": { version: VERSION, license: "MIT", devDependencies: RELEASE_TOOLING } },
     }),
     changelog: `## ${VERSION} — 2026-07-20\n\n- Released`,
     cli: `process.stdout.write("DIG ${VERSION}\\n")`,
@@ -76,7 +86,7 @@ test("version validation uses top-level CommonMark H2 sections and real list not
       name: "dig-gopher-explorer",
       version: VERSION,
       private: false,
-      license: "UNLICENSED",
+      license: "MIT",
       devDependencies: RELEASE_TOOLING,
     }),
   }), /private/);
@@ -86,10 +96,27 @@ test("version validation uses top-level CommonMark H2 sections and real list not
       name: "dig-gopher-explorer",
       version: VERSION,
       private: true,
-      license: "UNLICENSED",
+      license: "MIT",
       devDependencies: { ...RELEASE_TOOLING, yaml: "^2.9.0" },
     }),
   }), /exactly pinned/);
+  assert.throws(() => validateVersionTexts({
+    ...base,
+    packageJson: JSON.stringify({
+      name: "dig-gopher-explorer",
+      version: VERSION,
+      private: true,
+      license: "UNLICENSED",
+      devDependencies: RELEASE_TOOLING,
+    }),
+  }), /MIT SPDX/);
+  assert.throws(() => validateVersionTexts({
+    ...base,
+    packageLockJson: JSON.stringify({
+      version: VERSION,
+      packages: { "": { version: VERSION, license: "UNLICENSED", devDependencies: RELEASE_TOOLING } },
+    }),
+  }), /MIT SPDX/);
   assert.throws(() => validateVersionTexts({ ...base, cli: 'process.stdout.write("DIG 9.9.9\\n")' }), /CLI version/);
   assert.throws(
     () => validateVersionTexts({ ...base, changelog: `<!-- ## ${VERSION} — 2026-07-20 -->` }),
@@ -859,8 +886,8 @@ test("publisher fails closed after a mutable or non-latest publication", async (
 test("publisher checks authorization, license, event, and checksum manifest before GitHub access", async () => {
   const { directory, expected } = await candidateDirectory();
   for (const [overrides, pattern] of [
-    [{ publicationAuthorized: false }, /every contributor approves/],
-    [{ licensePresent: false }, /checked-in license/],
+    [{ publicationAuthorized: false }, /static release policy/],
+    [{ licensePresent: false }, /canonical MIT LICENSE/],
     [{ eventName: "workflow_dispatch" }, /tag-push event/],
     [{ refType: "branch" }, /tag-push event/],
   ]) {
@@ -871,10 +898,18 @@ test("publisher checks authorization, license, event, and checksum manifest befo
 
   const repositoryLicenseGate = new FakeGitHub(expected);
   await assert.rejects(
-    () => publish(directory, repositoryLicenseGate, { licensePresent: undefined }),
-    /checked-in license/,
+    () => publish(directory, repositoryLicenseGate, { root: directory, licensePresent: undefined }),
+    /canonical MIT LICENSE/,
   );
   assert.equal(repositoryLicenseGate.calls.length, 0);
+
+  await writeFile(join(directory, "LICENSE"), "not the approved license\n");
+  const invalidRepositoryLicense = new FakeGitHub(expected);
+  await assert.rejects(
+    () => publish(directory, invalidRepositoryLicense, { root: directory, licensePresent: undefined }),
+    /canonical MIT LICENSE/,
+  );
+  assert.equal(invalidRepositoryLicense.calls.length, 0);
 
   await writeFile(join(directory, "SHA256SUMS"), `${"0".repeat(64)}  asset-a.txt\n`);
   const fake = new FakeGitHub(await localAssetManifest(directory));

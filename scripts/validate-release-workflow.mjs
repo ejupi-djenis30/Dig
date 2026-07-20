@@ -82,14 +82,14 @@ const runs = Object.freeze({
   publicationGate: block(
     "set -euo pipefail",
     '[[ "${RELEASE_PUBLICATION_ENABLED}" == "true" ]] || {',
-    '  echo "Release publication is disabled until every contributor approves a project license." >&2',
+    '  echo "Release publication is disabled by the repository\'s static release policy." >&2',
     "  exit 1",
     "}",
   ),
   licenseGate: block(
     "set -euo pipefail",
-    "[[ ( -f LICENSE && ! -L LICENSE ) || ( -f LICENSE.md && ! -L LICENSE.md ) || ( -f LICENSE.txt && ! -L LICENSE.txt ) ]] || {",
-    '  echo "Release publication requires an approved, checked-in license." >&2',
+    "[[ -f LICENSE && ! -L LICENSE ]] || {",
+    '  echo "Release publication requires the canonical MIT LICENSE file." >&2',
     "  exit 1",
     "}",
   ),
@@ -403,7 +403,7 @@ export function validateReleaseWorkflowText(workflow) {
   exactScalar(root.get("name"), "Release readiness", "Workflow name");
   validateTriggers(root);
   exactMapping(root.get("permissions"), { contents: "read" }, "Workflow permissions");
-  exactMapping(root.get("env"), { RELEASE_PUBLICATION_ENABLED: "false" }, "Workflow environment");
+  exactMapping(root.get("env"), { RELEASE_PUBLICATION_ENABLED: "true" }, "Workflow environment");
   assert.deepEqual(state.publicationFlags, ["$.env.RELEASE_PUBLICATION_ENABLED"], "Release publication approval must not be shadowed or overridden.");
   assert.deepEqual(
     state.permissions.sort(),
