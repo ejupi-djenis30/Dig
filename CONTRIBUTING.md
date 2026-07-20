@@ -30,10 +30,9 @@ YAML, and parses changelog sections as CommonMark. If you edit a workflow, also 
 only by these validators remain exact-pinned development dependencies.
 
 Release metadata must stay synchronized across `package.json`, `package-lock.json`, the CLI version
-output and `CHANGELOG.md`. Pull requests run the release-candidate workflow. Release publication is
-currently disabled because the project has no agreed reuse license. It must stay disabled until all
-contributors approve the terms, the repository contains the resulting license, and the publication
-gate and package metadata are updated together in review.
+output and `CHANGELOG.md`. Pull requests run the release-candidate workflow. Stable tags publish only
+after the workflow verifies the reviewed source, the canonical MIT `LICENSE`, synchronized package
+metadata, reproducible artifacts, checksums and attestations.
 
 To exercise the CLI, use a server you are allowed to contact:
 
@@ -63,5 +62,5 @@ Keep commits narrow and write commit messages that describe the result, such as
 behavior, and how you checked it. Confirm that no private target or response data appears in the
 branch, test output, screenshots, or PR description.
 
-This repository does not currently grant a reuse license. By submitting a contribution, you
-confirm that you have the right to provide it; the repository's licensing status does not change.
+By submitting a contribution, you confirm that you have the right to provide it and agree that it
+will be licensed under the project's [MIT License](LICENSE).

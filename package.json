@@ -2,7 +2,7 @@
   "name": "dig-gopher-explorer",
   "version": "2.1.1",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
   "type": "module",
   "description": "A small, inspectable Gopher protocol client and browser-based protocol explorer.",
   "bin": {
@@ -13,6 +13,7 @@
     "src",
     "site/protocol.mjs",
     "CHANGELOG.md",
+    "LICENSE",
     "SECURITY.md"
   ],
   "scripts": {

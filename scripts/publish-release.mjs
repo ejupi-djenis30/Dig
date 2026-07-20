@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, lstatSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { parseChangelogSections } from "./validate-release.mjs";
+import { parseChangelogSections, validateMitLicenseText } from "./validate-release.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const stableTagPattern = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
@@ -458,10 +458,14 @@ async function waitForPublishedState({ repository, releaseId, contract, expected
 }
 
 function checkedInLicenseExists(root) {
-  return ["LICENSE", "LICENSE.md", "LICENSE.txt"].some((name) => {
-    const path = resolve(root, name);
-    return existsSync(path) && lstatSync(path).isFile();
-  });
+  const path = resolve(root, "LICENSE");
+  if (!existsSync(path) || !lstatSync(path).isFile()) return false;
+  try {
+    validateMitLicenseText(readFileSync(path, "utf8"));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function publishReleaseCandidate({
@@ -479,8 +483,8 @@ export async function publishReleaseCandidate({
   upload = uploadWithGitHubApi,
   pause = (milliseconds) => new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds)),
 }) {
-  assert.equal(publicationAuthorized, true, "Release publication is disabled until every contributor approves a project license.");
-  assert.equal(licensePresent, true, "Release publication requires an approved, checked-in license.");
+  assert.equal(publicationAuthorized, true, "Release publication is disabled by the repository's static release policy.");
+  assert.equal(licensePresent, true, "Release publication requires the canonical MIT LICENSE file.");
   assert.equal(eventName, "push", "Release publication requires a trusted tag-push event.");
   assert.equal(refType, "tag", "Release publication requires a trusted tag-push event.");
   assert.match(tag, stableTagPattern, "Only stable v<major>.<minor>.<patch> tags may be published.");

@@ -207,10 +207,10 @@ test("release workflow exact-contract binds actions, run blocks, gates, and publ
     replaceOnce(workflow, '[[ "${source_commit}" == "$(git rev-parse HEAD)" ]]', "true"),
     /Validate synchronized release metadata and source.*run changed unexpectedly/,
   );
-  rejects(replaceOnce(workflow, 'RELEASE_PUBLICATION_ENABLED: "false"', 'RELEASE_PUBLICATION_ENABLED: "true"'), /changed unexpectedly/);
+  rejects(replaceOnce(workflow, 'RELEASE_PUBLICATION_ENABLED: "true"', 'RELEASE_PUBLICATION_ENABLED: "false"'), /changed unexpectedly/);
   rejects(replaceOnce(workflow, "name: Enforce static publication approval", "name: Authorization removed"), /name changed unexpectedly/);
-  rejects(replaceOnce(workflow, "-f LICENSE.txt", "-e LICENSE.txt"), /Enforce checked-in license.*run changed unexpectedly/);
-  rejects(replaceOnce(workflow, "! -L LICENSE.txt", "! -d LICENSE.txt"), /Enforce checked-in license.*run changed unexpectedly/);
+  rejects(replaceOnce(workflow, "-f LICENSE", "-e LICENSE"), /Enforce checked-in license.*run changed unexpectedly/);
+  rejects(replaceOnce(workflow, "! -L LICENSE", "! -d LICENSE"), /Enforce checked-in license.*run changed unexpectedly/);
   rejects(replaceOnce(workflow, "sha256sum --check --strict", "sha256sum --check"), /Install verified GitHub CLI.*run changed unexpectedly/);
   rejects(
     replaceOnce(
