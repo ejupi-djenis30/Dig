@@ -329,6 +329,46 @@ function createDraftRelease({ repository, contract, run }) {
   });
 }
 
+function retryDelayMilliseconds(attempt) {
+  return Math.min(2 ** attempt, 10) * 1000;
+}
+
+async function waitForCreatedRelease({
+  repository,
+  contract,
+  expectedReleaseId,
+  run,
+  pause,
+}) {
+  const attempts = 10;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const listed = listReleaseForTag({ repository, tag: contract.tag, run });
+    if (listed) {
+      if (expectedReleaseId !== undefined) {
+        assert.equal(
+          listed.id,
+          expectedReleaseId,
+          `GitHub exposed a conflicting release ID while reconfirming ${contract.tag}.`,
+        );
+      }
+      validateReleaseIdentity(listed, contract);
+      if (listed.draft === false) return listed;
+      validateDraftRelease(listed, contract);
+      assert.equal(
+        listed.assets.length,
+        0,
+        `Newly created GitHub draft ${contract.tag} is not empty during reconfirmation.`,
+      );
+      return listed;
+    }
+    if (attempt < attempts - 1) await pause(retryDelayMilliseconds(attempt));
+  }
+  const expectedId = expectedReleaseId === undefined ? "an unambiguous ID" : `ID ${expectedReleaseId}`;
+  throw new Error(
+    `GitHub did not reconfirm newly created draft ${contract.tag} with ${expectedId} after ${attempts} attempts.`,
+  );
+}
+
 function deleteDraftAsset({ repository, releaseId, assetId, contract, run }) {
   const args = apiArguments(`repos/${repository}/releases/assets/${assetId}`, ["--method", "DELETE"]);
   const result = run(args);
@@ -367,7 +407,7 @@ async function waitForDraftInventory({ repository, releaseId, contract, expected
       return verifyDraftInventory({ repository, releaseId, contract, expected, run });
     } catch (error) {
       lastError = error;
-      if (attempt < 9) await pause(Math.min(2 ** attempt, 10) * 1000);
+      if (attempt < 9) await pause(retryDelayMilliseconds(attempt));
     }
   }
   throw lastError;
@@ -452,7 +492,7 @@ async function waitForPublishedState({ repository, releaseId, contract, expected
       return verifyPublishedState({ repository, releaseId, contract, expected, run, requireLatest: true });
     } catch (error) {
       lastError = error;
-      if (attempt < 9) await pause(Math.min(2 ** attempt, 10) * 1000);
+      if (attempt < 9) await pause(retryDelayMilliseconds(attempt));
     }
   }
   throw lastError;
@@ -513,26 +553,44 @@ export async function publishReleaseCandidate({
     requireRemoteSourceBinding({ repository, defaultBranch, tag, sourceCommit, run });
   } else {
     requireRemoteSourceBinding({ repository, defaultBranch, tag, sourceCommit, run });
+    let created;
+    let createError;
     try {
-      release = createDraftRelease({ repository, contract, run });
-    } catch (createError) {
+      created = createDraftRelease({ repository, contract, run });
+    } catch (error) {
+      createError = error;
+    }
+    if (createError) {
       try {
-        release = listReleaseForTag({ repository, tag, run });
+        release = await waitForCreatedRelease({
+          repository,
+          contract,
+          expectedReleaseId: undefined,
+          run,
+          pause,
+        });
       } catch (reconciliationError) {
         throw new Error(`${createError.message}. Draft creation reconciliation failed: ${reconciliationError.message}`, {
           cause: reconciliationError,
         });
       }
-      if (!release) throw createError;
+      if (release.draft === false) {
+        return verifyPublishedState({ repository, releaseId: release.id, contract, expected, run, requireLatest: false });
+      }
+    } else {
+      validateDraftRelease(created, contract);
+      assert.equal(created.assets.length, 0, `Newly created GitHub draft ${contract.tag} is not empty.`);
+      release = await waitForCreatedRelease({
+        repository,
+        contract,
+        expectedReleaseId: created.id,
+        run,
+        pause,
+      });
       if (release.draft === false) {
         return verifyPublishedState({ repository, releaseId: release.id, contract, expected, run, requireLatest: false });
       }
     }
-    validateDraftRelease(release, contract);
-    const listed = listReleaseForTag({ repository, tag, run });
-    assert.equal(listed?.id, release.id, "GitHub did not reconfirm the newly created draft by ID.");
-    validateDraftRelease(listed, contract);
-    release = listed;
   }
 
   release = resetRecoverableDraft({ repository, release, contract, expected, run });
