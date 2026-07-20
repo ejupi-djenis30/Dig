@@ -64,10 +64,9 @@ artifact with read-only source access; only its separate deployment job receives
 an OIDC token. YAML and CommonMark parsers are exact-pinned development dependencies and are not
 shipped as CLI runtime dependencies.
 
-This integrity evidence does not grant a software license. Publication is deliberately disabled
-before any attestation or release mutation while the repository remains `UNLICENSED`. Enabling it
-requires every contributor to approve the licensing terms, a checked-in `LICENSE`, synchronized
-package metadata and an explicit reviewed change to the publication gate.
+DIG is licensed under MIT. Release publication still fails closed unless the repository contains the
+canonical `LICENSE`, package and lockfile metadata declare `MIT`, and the reviewed publication gate
+remains enabled. A tag alone cannot bypass those checks.
 
 ## Structure
 
@@ -90,4 +89,4 @@ See [the protocol notes](docs/PROTOCOL.md) for the exact invariants and standard
 
 The repository began as a Flutter interface prototype by Djenis Ejupi and project contributors. Version 2 replaces committed build output and platform scaffolding with a working, testable protocol core. Git history keeps the original authorship intact.
 
-No license is granted by this repository. Contact the contributors before reusing the code.
+DIG is available under the [MIT License](LICENSE).

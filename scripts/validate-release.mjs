@@ -17,6 +17,28 @@ const releaseTooling = {
   unified: "11.0.5",
   yaml: "2.9.0",
 };
+const canonicalMitLicense = `MIT License
+
+Copyright (c) 2026 Djenis Ejupi and project contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+`;
 
 const markdownParser = unified().use(remarkParse);
 
@@ -172,6 +194,15 @@ async function sha256(file) {
   return createHash("sha256").update(await readFile(file)).digest("hex");
 }
 
+export function validateMitLicenseText(license) {
+  assert.equal(typeof license, "string", "LICENSE must be readable text.");
+  assert.equal(
+    license.replaceAll("\r\n", "\n"),
+    canonicalMitLicense,
+    "LICENSE must contain the approved canonical MIT terms and copyright holders.",
+  );
+}
+
 export function validateVersionTexts({ packageJson, packageLockJson, changelog, cli, tag }) {
   const packageMetadata = JSON.parse(packageJson);
   const lockMetadata = JSON.parse(packageLockJson);
@@ -179,12 +210,17 @@ export function validateVersionTexts({ packageJson, packageLockJson, changelog, 
 
   assert.match(version, semanticVersionPattern, `Invalid stable semantic version: ${version}`);
   assert.equal(packageMetadata.name, "dig-gopher-explorer", "Unexpected package name.");
-  assert.equal(packageMetadata.private, true, "The unlicensed package must remain private on npm.");
-  assert.equal(packageMetadata.license, "UNLICENSED", "Package licensing metadata changed unexpectedly.");
+  assert.equal(packageMetadata.private, true, "The CLI package must remain private on npm; distribution uses GitHub Releases.");
+  assert.equal(packageMetadata.license, "MIT", "Package licensing metadata must use the MIT SPDX identifier.");
   assert.deepEqual(packageMetadata.dependencies ?? {}, {}, "The DIG CLI must not acquire runtime dependencies.");
   assert.deepEqual(packageMetadata.devDependencies, releaseTooling, "Release parser tooling must remain exactly pinned.");
   assert.equal(lockMetadata.version, version, "package-lock.json must match package.json.");
   assert.equal(lockMetadata.packages?.[""]?.version, version, "The lockfile root version must match package.json.");
+  assert.equal(
+    lockMetadata.packages?.[""]?.license,
+    "MIT",
+    "The lockfile root licensing metadata must use the MIT SPDX identifier.",
+  );
   assert.deepEqual(
     lockMetadata.packages?.[""]?.devDependencies,
     releaseTooling,
@@ -205,14 +241,16 @@ export function validateVersionTexts({ packageJson, packageLockJson, changelog, 
 }
 
 export async function validateReleaseMetadata({ root = repositoryRoot, tag } = {}) {
-  const [packageJson, packageLockJson, changelog, cli, workflow] = await Promise.all([
+  const [packageJson, packageLockJson, changelog, cli, license, workflow] = await Promise.all([
     readFile(resolve(root, "package.json"), "utf8"),
     readFile(resolve(root, "package-lock.json"), "utf8"),
     readFile(resolve(root, "CHANGELOG.md"), "utf8"),
     readFile(resolve(root, "bin/dig.mjs"), "utf8"),
+    readFile(resolve(root, "LICENSE"), "utf8"),
     readFile(resolve(root, ".github/workflows/release.yml"), "utf8"),
   ]);
   const version = validateVersionTexts({ packageJson, packageLockJson, changelog, cli, tag });
+  validateMitLicenseText(license);
   validateReleaseWorkflowText(workflow);
   return version;
 }
@@ -267,6 +305,7 @@ export async function validateReleaseBundle({ directory, version, sourceCommit, 
     "package/src/output.mjs",
     "package/site/protocol.mjs",
     "package/CHANGELOG.md",
+    "package/LICENSE",
     "package/README.md",
     "package/SECURITY.md",
   ].sort();
@@ -288,8 +327,8 @@ export async function validateReleaseBundle({ directory, version, sourceCommit, 
   const packagedMetadata = JSON.parse(packagedFiles.get("package/package.json").toString("utf8"));
   assert.equal(packagedMetadata.name, "dig-gopher-explorer", "CLI archive has the wrong package name.");
   assert.equal(packagedMetadata.version, version, "CLI archive version does not match the release.");
-  assert.equal(packagedMetadata.private, true, "The unlicensed CLI archive must remain private on npm.");
-  assert.equal(packagedMetadata.license, "UNLICENSED", "CLI archive licensing metadata changed unexpectedly.");
+  assert.equal(packagedMetadata.private, true, "The CLI archive must remain private on npm; distribution uses GitHub Releases.");
+  assert.equal(packagedMetadata.license, "MIT", "CLI archive licensing metadata must use the MIT SPDX identifier.");
   assert.equal(packagedMetadata.bin?.["dig-gopher"], "./bin/dig.mjs", "CLI archive has the wrong executable entry point.");
   assert.equal(packagedMetadata.dependencies, undefined, "CLI archive unexpectedly declares runtime dependencies.");
   const sbom = JSON.parse(await readFile(resolve(directory, `dig-${version}.cdx.json`), "utf8"));
