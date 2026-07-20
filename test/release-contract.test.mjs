@@ -99,10 +99,31 @@ test("version validation uses top-level CommonMark H2 sections and real list not
     () => validateVersionTexts({ ...base, changelog: `<!-- hidden -->## ${VERSION} — 2026-07-20` }),
     /one real/,
   );
+  assert.throws(
+    () => validateVersionTexts({
+      ...base,
+      changelog: `## ![${VERSION} — 2026-07-20](one-pixel.png "release title")\n\n- Released`,
+    }),
+    /one real/,
+  );
+  assert.throws(
+    () => validateVersionTexts({
+      ...base,
+      changelog: `## <!-- ${VERSION} — 2026-07-20 -->\n\n- Released`,
+    }),
+    /one real/,
+  );
   assert.equal(
     validateVersionTexts({
       ...base,
       changelog: `<!--\n## ${VERSION} — 2026-07-19\n-->\n## ${VERSION} — 2026-07-20 <!-- release note -->\n\n- Released`,
+    }),
+    VERSION,
+  );
+  assert.equal(
+    validateVersionTexts({
+      ...base,
+      changelog: `## [**${VERSION}**](https://example.test/release) — \`2026-07-20\`\n\n- [**Visible release**](https://example.test/notes) with \`code\``,
     }),
     VERSION,
   );
@@ -154,6 +175,20 @@ test("version validation uses top-level CommonMark H2 sections and real list not
     () => validateVersionTexts({ ...base, changelog: `## ${VERSION} — 2026-02-30\n\n- Invalid date` }),
     /invalid date/,
   );
+  for (const note of [
+    "<!-- hidden -->",
+    "![Release details](one-pixel.png \"image title\")",
+    "[![Release details](one-pixel.png)](https://example.test/release \"link title\")",
+    "![Release details][release-image]\n\n[release-image]: one-pixel.png \"image title\"",
+    "** **",
+    "[ ](https://example.test/release \"link title\")",
+    "` `",
+  ]) {
+    assert.throws(
+      () => validateVersionTexts({ ...base, changelog: `## ${VERSION} — 2026-07-20\n\n- ${note}` }),
+      /visible non-whitespace text/,
+    );
+  }
   const section = parseChangelogSections(
     `## ${VERSION} — 2026-07-20\n\n> - Quoted\n\n\`\`\`md\n- Code\n\`\`\`\n\n- Released\n\n## Unreleased\n\n- Future`,
   ).find(({ version }) => version === VERSION);

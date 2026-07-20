@@ -19,10 +19,15 @@ const releaseTooling = {
 
 const markdownParser = unified().use(remarkParse);
 
-function markdownNodeText(node) {
-  if (node.type === "text" || node.type === "inlineCode") return node.value;
-  if (node.type === "image") return node.alt ?? "";
-  return Array.isArray(node.children) ? node.children.map(markdownNodeText).join("") : "";
+function visibleMarkdownText(node) {
+  if (["text", "inlineCode", "code"].includes(node.type)) return node.value;
+  if (["html", "image", "imageReference"].includes(node.type)) return "";
+  return Array.isArray(node.children) ? node.children.map(visibleMarkdownText).join("") : "";
+}
+
+function hasVisibleListItem(node) {
+  if (node.type === "listItem" && visibleMarkdownText(node).trim() !== "") return true;
+  return Array.isArray(node.children) && node.children.some(hasVisibleListItem);
 }
 
 function sourceSlice(markdown, node) {
@@ -48,7 +53,7 @@ export function parseChangelogSections(changelog) {
     ? [{ node, index }]
     : []);
   for (const [headingIndex, heading] of headings.entries()) {
-    const title = markdownNodeText(heading.node).trim();
+    const title = visibleMarkdownText(heading.node).trim();
     const release = title.match(/^((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)) — (\d{4}-\d{2}-\d{2})$/);
     const nextHeading = headings[headingIndex + 1];
     const bodyNodes = tree.children.slice(heading.index + 1, nextHeading?.index ?? tree.children.length);
@@ -66,6 +71,7 @@ export function parseChangelogSections(changelog) {
       date: release?.[2],
       body: bodySource === "" ? [] : bodySource.split("\n"),
       notes: bodyNodes.filter(({ type }) => type === "list").map((node) => sourceSlice(changelog, node).trim()),
+      hasVisibleNoteItem: bodyNodes.some((node) => node.type === "list" && hasVisibleListItem(node)),
     });
   }
   return sections;
@@ -176,6 +182,11 @@ export function validateVersionTexts({ packageJson, packageLockJson, changelog, 
   assert.equal(matchingHeadings.length, 1, `CHANGELOG.md must contain one real, dated ${version} heading.`);
   assert.ok(isCalendarDate(matchingHeadings[0].date), `CHANGELOG.md contains an invalid date for ${version}.`);
   assert.ok(matchingHeadings[0].notes.length > 0, `CHANGELOG.md ${version} must contain a top-level CommonMark list.`);
+  assert.equal(
+    matchingHeadings[0].hasVisibleNoteItem,
+    true,
+    `CHANGELOG.md ${version} must contain a list item with visible non-whitespace text.`,
+  );
   assert.ok(cli.includes(`process.stdout.write("DIG ${version}\\n")`), "The CLI version must match package.json.");
   if (tag !== undefined) assert.equal(tag, `v${version}`, `Release tag must be exactly v${version}.`);
   return version;
