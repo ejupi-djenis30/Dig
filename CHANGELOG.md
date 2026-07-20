@@ -5,6 +5,12 @@
 - Make the skip link reliably visible and usable for keyboard navigation.
 - Tie the stylesheet, application script and service-worker cache to one release version.
 - Prefer fresh static assets while retaining the last verified offline response as a fallback.
+- Keep release publication fail-closed until contributors approve and add a project license.
+- Recover only contract-bound drafts and reconcile interrupted release transitions safely.
+- Validate the complete release workflow through a fail-closed YAML AST contract.
+- Extract real release sections and top-level notes through a CommonMark AST.
+- Allow safe release recovery after reviewed `main` advances beyond the tagged commit.
+- Pin CI and Pages runners and Node.js patches, with Pages deployment privileges isolated from build.
 
 ## 2.1.0 — 2026-07-19
 

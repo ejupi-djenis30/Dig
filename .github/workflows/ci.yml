@@ -14,12 +14,19 @@ concurrency:
 
 jobs:
   test:
+    name: test (${{ matrix.node }})
     timeout-minutes: 5
     strategy:
       fail-fast: false
       matrix:
-        node-version: [20, 22]
-    runs-on: ubuntu-latest
+        include:
+          - node: 20
+            node-version: "20.20.2"
+            npm-version: "10.8.2"
+          - node: 22
+            node-version: "22.23.1"
+            npm-version: "10.9.8"
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -28,5 +35,14 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
+      - name: Verify exact Node.js runtime
+        shell: bash
+        env:
+          EXPECTED_NODE_VERSION: ${{ matrix.node-version }}
+          EXPECTED_NPM_VERSION: ${{ matrix.npm-version }}
+        run: |
+          [[ "$(node --version)" == "v${EXPECTED_NODE_VERSION}" ]]
+          [[ "$(npm --version)" == "${EXPECTED_NPM_VERSION}" ]]
       - run: npm ci --ignore-scripts
       - run: npm run check
+      - run: npm audit --audit-level=moderate
