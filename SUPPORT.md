@@ -19,5 +19,5 @@ Do not open a public issue for a vulnerability or exposed credential. Follow the
 [security policy](SECURITY.md) and use
 [private vulnerability reporting](https://github.com/ejupi-djenis30/Dig/security/advisories/new).
 
-This is an open-source project, not a managed service. Response times are not guaranteed, but
+This is a public source repository, not a managed service. Response times are not guaranteed, but
 complete, reproducible and safely redacted reports are prioritized.
