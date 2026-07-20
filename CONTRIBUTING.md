@@ -19,11 +19,19 @@ Install Node.js 20 or newer, then run:
 ```bash
 npm ci --ignore-scripts
 npm run check
-npm audit --omit=dev
+npm audit --audit-level=moderate
 ```
 
-`npm run check` runs the Node test suite and validates the static site. If you edit a workflow, run
-[`actionlint`](https://github.com/rhysd/actionlint) locally when it is available.
+`npm run check` runs the Node test suite, validates the static site, parses the release workflow as
+YAML, and parses changelog sections as CommonMark. If you edit a workflow, also run
+[`actionlint`](https://github.com/rhysd/actionlint) locally when it is available. Dependencies used
+only by these validators remain exact-pinned development dependencies.
+
+Release metadata must stay synchronized across `package.json`, `package-lock.json`, the CLI version
+output and `CHANGELOG.md`. Pull requests run the release-candidate workflow. Release publication is
+currently disabled because the project has no agreed reuse license. It must stay disabled until all
+contributors approve the terms, the repository contains the resulting license, and the publication
+gate and package metadata are updated together in review.
 
 To exercise the CLI, use a server you are allowed to contact:
 

@@ -55,7 +55,7 @@ test("enforces a total deadline even when a server drips data", async (context) 
   const { port } = server.address();
 
   await assert.rejects(
-    fetchGopher(`gopher://127.0.0.1:${port}/0/drip`, { timeoutMs: 70, idleTimeoutMs: 50 }),
+    fetchGopher(`gopher://127.0.0.1:${port}/0/drip`, { timeoutMs: 70, idleTimeoutMs: 500 }),
     /total deadline/,
   );
 });
