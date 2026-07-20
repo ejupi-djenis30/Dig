@@ -20,10 +20,11 @@ import { normalizeCycloneDx } from "../scripts/normalize-sbom.mjs";
 import {
   localAssetManifest,
   publishReleaseCandidate,
+  verifyLocalChecksumManifest,
   verifyPublishedAssets,
 } from "../scripts/publish-release.mjs";
 
-const VERSION = "2.1.1";
+const VERSION = "2.1.2";
 const COMMIT = "a".repeat(40);
 const RELEASE_TOOLING = { "remark-parse": "11.0.0", unified: "11.0.5", yaml: "2.9.0" };
 const repositoryRoot = resolve(fileURLToPath(new URL("../", import.meta.url)));
@@ -501,6 +502,30 @@ test("tar validation rejects unexpected entry types and non-zero padding", () =>
   assert.throws(() => tarFiles(paddedArchive), /non-zero padding/);
 });
 
+test("checksum generation and verification share UTF-8 byte order for mixed-case names", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "dig-checksum-order-"));
+  temporaryDirectories.add(directory);
+  for (const name of ["release-metadata.json", "alpha.txt", "SOURCE_COMMIT", "Zebra.txt"]) {
+    await writeFile(join(directory, name), `${name}\n`);
+  }
+
+  const assets = await localAssetManifest(directory);
+  assert.deepEqual(
+    assets.map(({ name }) => name),
+    ["SOURCE_COMMIT", "Zebra.txt", "alpha.txt", "release-metadata.json"],
+  );
+  const line = ({ name, digest }) => `${digest.slice("sha256:".length)}  ${name}`;
+  await writeFile(join(directory, "SHA256SUMS"), `${[...assets.slice(1), assets[0]].map(line).join("\n")}\n`);
+  const wrongOrderManifest = await localAssetManifest(directory);
+  await assert.rejects(
+    () => verifyLocalChecksumManifest(directory, wrongOrderManifest),
+    /exactly once in lexical order/,
+  );
+
+  await writeFile(join(directory, "SHA256SUMS"), `${assets.map(line).join("\n")}\n`);
+  await verifyLocalChecksumManifest(directory, await localAssetManifest(directory));
+});
+
 async function candidateDirectory() {
   const directory = await mkdtemp(join(tmpdir(), "dig-publisher-"));
   temporaryDirectories.add(directory);
@@ -594,7 +619,7 @@ class FakeGitHub {
       return ok(this.releaseList(endpoint));
     }
     if (endpoint === "repos/owner/repository" && method === "GET") return ok({ default_branch: "main" });
-    if (endpoint === "repos/owner/repository/git/ref/tags/v2.1.1" && method === "GET") {
+    if (endpoint === `repos/owner/repository/git/ref/tags/v${VERSION}` && method === "GET") {
       return ok({ object: { type: "commit", sha: this.options.tagCommit } });
     }
     if (endpoint === "repos/owner/repository/git/ref/heads/main" && method === "GET") {
@@ -674,7 +699,7 @@ class FakeGitHub {
       this.options.replaceDraftBeforeUpload = false;
       this.release = {
         id: 84,
-        tag_name: "v2.1.1",
+        tag_name: `v${VERSION}`,
         target_commitish: COMMIT,
         name: "Foreign release",
         body: "Foreign draft body",
@@ -706,7 +731,7 @@ class FakeGitHub {
 function publish(directory, fake, overrides = {}) {
   return publishReleaseCandidate({
     directory,
-    tag: "v2.1.1",
+    tag: `v${VERSION}`,
     repository: "owner/repository",
     defaultBranch: "main",
     sourceCommit: COMMIT,

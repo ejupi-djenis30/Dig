@@ -7,6 +7,7 @@ import { gunzipSync } from "node:zlib";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 import { hasSubstantiveReleaseNoteText } from "./release-note-content.mjs";
+import { compareReleaseAssetNames } from "./release-order.mjs";
 import { validateReleaseWorkflowText } from "./validate-release-workflow.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("../", import.meta.url)));
@@ -187,7 +188,7 @@ function releaseFileNames(version) {
     `dig-gopher-explorer-${version}.tgz`,
     `dig-npm-dependencies-${version}.json`,
     "release-metadata.json",
-  ].sort();
+  ].sort(compareReleaseAssetNames);
 }
 
 async function sha256(file) {
@@ -259,7 +260,9 @@ export async function validateReleaseBundle({ directory, version, sourceCommit, 
   assert.match(version, semanticVersionPattern, "Release bundle version must be stable semantic versioning.");
   assert.match(sourceCommit, sourceCommitPattern, "Source commit must be a lowercase 40-character SHA.");
   const expectedFiles = releaseFileNames(version);
-  const actualFiles = (await readdir(directory)).filter((entry) => entry !== "SHA256SUMS").sort();
+  const actualFiles = (await readdir(directory))
+    .filter((entry) => entry !== "SHA256SUMS")
+    .sort(compareReleaseAssetNames);
   assert.deepEqual(actualFiles, expectedFiles, "Release bundle contains missing, stale, or unexpected files.");
 
   const checksumEntries = (await readFile(resolve(directory, "SHA256SUMS"), "utf8"))
@@ -308,9 +311,9 @@ export async function validateReleaseBundle({ directory, version, sourceCommit, 
     "package/LICENSE",
     "package/README.md",
     "package/SECURITY.md",
-  ].sort();
+  ].sort(compareReleaseAssetNames);
   assert.deepEqual(
-    [...packagedFiles.keys()].sort(),
+    [...packagedFiles.keys()].sort(compareReleaseAssetNames),
     expectedPackageFiles,
     "CLI archive contains missing, stale, or unexpected files.",
   );
