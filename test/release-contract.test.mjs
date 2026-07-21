@@ -59,7 +59,7 @@ test("the checked-in license is the approved canonical MIT grant", async () => {
   const license = await readFile(resolve(repositoryRoot, "LICENSE"), "utf8");
   validateMitLicenseText(license);
   assert.throws(
-    () => validateMitLicenseText(license.replace("project contributors", "a named collaborator")),
+    () => validateMitLicenseText(license.replace("DIG contributors", "a named collaborator")),
     /canonical MIT terms/,
   );
 });

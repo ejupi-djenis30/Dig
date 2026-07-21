@@ -48,3 +48,18 @@ test("site assets and the service-worker cache roll over with every release", as
   assert.ok(serviceWorker.includes(`./fixtures/root.txt?v=${version}`));
   assert.doesNotMatch(serviceWorker, /caches\.match\(request\)\.then/u);
 });
+
+test("public project surfaces use collective attribution", async () => {
+  const [readme, license, html] = await Promise.all([
+    readFile(new URL("README.md", repositoryRoot), "utf8"),
+    readFile(new URL("LICENSE", repositoryRoot), "utf8"),
+    readFile(new URL("index.html", siteRoot), "utf8"),
+  ]);
+
+  assert.doesNotMatch(readme, /prototype by /iu);
+  assert.doesNotMatch(html, /Original prototype:/u);
+  assert.match(readme, /Ejupi Labs and DIG contributors/u);
+  assert.match(license, /Ejupi Labs and DIG contributors/u);
+  assert.match(html, /Ejupi Labs and DIG contributors built both the prototype and the current implementation/u);
+  assert.match(html, />DIG contributors <span aria-hidden="true">↗<\/span><\/a>/u);
+});
