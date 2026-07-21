@@ -21,6 +21,15 @@ test("the skip link has a visible keyboard-focus state and a usable target size"
   assert.match(styles, /\.skip-link:focus-visible\s*\{[^}]*transform:\s*translateY\(0\);/s);
 });
 
+test("the packet side nodes keep symmetric spacing at intermediate widths", async () => {
+  const styles = await readFile(new URL("styles.css", siteRoot), "utf8");
+
+  assert.match(
+    styles,
+    /@media \(min-width: 921px\) and \(max-width: 1100px\) \{\s*\.packet-node-left,\s*\.packet-node-right \{ padding-inline: \.55rem; \}\s*\}/u,
+  );
+});
+
 test("site assets and the service-worker cache roll over with every release", async () => {
   const [html, app, serviceWorker, packageMetadata, packageLock, changelog] = await Promise.all([
     readFile(new URL("index.html", siteRoot), "utf8"),

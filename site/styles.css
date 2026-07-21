@@ -270,6 +270,11 @@ footer img { max-width: 100%; height: auto; }
 footer p { margin: 0; }
 footer a { justify-self: end; color: var(--ink); font-weight: 800; }
 
+@media (min-width: 921px) and (max-width: 1100px) {
+  .packet-node-left,
+  .packet-node-right { padding-inline: .55rem; }
+}
+
 @media (max-width: 920px) {
   .header { grid-template-columns: 1fr auto; }
   .header nav { display: none; }
