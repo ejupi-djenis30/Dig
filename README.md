@@ -103,6 +103,6 @@ See [the protocol notes](docs/PROTOCOL.md) for the exact invariants and standard
 
 ## Project history
 
-The repository began as a Flutter interface prototype by Djenis Ejupi with project contributors. Version 2 replaces committed build output and platform scaffolding with a working, testable protocol core. Shared work is credited collectively.
+The repository began as a Flutter interface prototype. Version 2 replaces the original visual scaffold with a working, testable protocol core. Ejupi Labs and DIG contributors share credit for every release.
 
 DIG is available under the [MIT License](LICENSE).
