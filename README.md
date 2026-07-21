@@ -23,6 +23,22 @@
 
 ## Run the CLI
 
+Install the tested archive from the [latest release](https://github.com/ejupi-djenis30/Dig/releases/latest):
+
+```bash
+gh release download --repo ejupi-djenis30/Dig --pattern 'dig-gopher-explorer-*.tgz'
+archive="$(find . -maxdepth 1 -name 'dig-gopher-explorer-*.tgz' -print -quit)"
+gh attestation verify "$archive" --repo ejupi-djenis30/Dig
+npm install --global "$archive"
+dig-gopher gopher://gopher.floodgap.com/1/
+```
+
+Compare the archive digest with the release's `SHA256SUMS` before installing it. The package needs
+Node.js 20 or newer; CI verifies Node.js 20 and 22. It opens a direct, unencrypted TCP connection
+to the requested Gopher server.
+
+To work from source instead:
+
 ```bash
 git clone https://github.com/ejupi-djenis30/Dig.git
 cd Dig
