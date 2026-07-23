@@ -30,7 +30,7 @@ function collectUses(value, uses = []) {
 test("CI pins Ubuntu and exact maintained Node.js patch releases", async () => {
   const ci = await workflow("ci.yml");
   assert.deepEqual(ci.permissions, { contents: "read" });
-  assert.deepEqual(Object.keys(ci.jobs), ["test"]);
+  assert.deepEqual(Object.keys(ci.jobs).sort(), ["browser-e2e", "test"]);
   assert.equal(ci.jobs.test.name, "test (${{ matrix.node }})");
   assert.equal(ci.jobs.test["runs-on"], "ubuntu-24.04");
   assert.deepEqual(ci.jobs.test.strategy.matrix.include, [
@@ -42,6 +42,26 @@ test("CI pins Ubuntu and exact maintained Node.js patch releases", async () => {
   assert.ok(commands.some((command) => command.includes('"${EXPECTED_NPM_VERSION}"')));
   assert.ok(commands.includes("npm audit --audit-level=moderate"));
   assert.ok(commands.every((command) => !command.includes("npm audit --omit=dev")));
+
+  const browser = ci.jobs["browser-e2e"];
+  assert.equal(browser.name, "Chromium E2E");
+  assert.equal(browser["runs-on"], "ubuntu-24.04");
+  assert.equal(browser["timeout-minutes"], 10);
+  assert.ok(browser.steps.some((step) => step.with?.["node-version"] === "22.23.1"));
+  assert.ok(browser.steps.some((step) => step.run === "npm ci --ignore-scripts"));
+  assert.ok(
+    browser.steps.some(
+      (step) => step.run === "npx --no-install playwright install --with-deps chromium",
+    ),
+  );
+  assert.ok(browser.steps.some((step) => step.run === "npm run test:e2e"));
+  assert.ok(
+    browser.steps.some(
+      (step) =>
+        step.uses === "actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4" &&
+        step.if === "${{ failure() }}",
+    ),
+  );
   for (const reference of collectUses(ci)) assert.match(reference, pinnedUse);
 });
 

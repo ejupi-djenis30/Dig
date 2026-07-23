@@ -21,11 +21,15 @@ Install Node.js 20 or newer, then run:
 ```bash
 npm ci --ignore-scripts
 npm run check
+npx --no-install playwright install chromium
+npm run test:e2e
 npm audit --audit-level=moderate
 ```
 
 `npm run check` runs the Node test suite, validates the static site, parses the release workflow as
-YAML, and parses changelog sections as CommonMark. If you edit a workflow, also run
+YAML, and parses changelog sections as CommonMark. `npm run test:e2e` serves the checked-in site
+locally, blocks outbound requests, exercises the recorded-menu replay in Chromium, and checks the
+320-pixel layout for horizontal overflow. If you edit a workflow, also run
 [`actionlint`](https://github.com/rhysd/actionlint) locally when it is available. Dependencies used
 only by these validators remain exact-pinned development dependencies.
 
