@@ -101,6 +101,33 @@ test.describe("320px viewport", () => {
         };
       };
 
+      const interactiveTargets = [...document.querySelectorAll("a[href], button, input")]
+        .filter((element) => {
+          const bounds = element.getBoundingClientRect();
+          const visible =
+            typeof element.checkVisibility === "function"
+              ? element.checkVisibility({
+                  checkOpacity: true,
+                  checkVisibilityCSS: true,
+                })
+              : true;
+          return visible && bounds.width > 0 && bounds.height > 0;
+        })
+        .map((element) => {
+          const bounds = element.getBoundingClientRect();
+          return {
+            target:
+              element.getAttribute("aria-label") ||
+              element.getAttribute("name") ||
+              element.textContent?.trim().replace(/\s+/gu, " ") ||
+              element.id ||
+              element.tagName.toLowerCase(),
+            tag: element.tagName.toLowerCase(),
+            width: bounds.width,
+            height: bounds.height,
+          };
+        });
+
       return {
         viewport: document.documentElement.clientWidth,
         documentWidth: document.documentElement.scrollWidth,
@@ -112,6 +139,7 @@ test.describe("320px viewport", () => {
         selectedItem: rectangle('.menu-item[aria-current="true"]'),
         trace: rectangle(".trace-pane"),
         source: rectangle(".github-link"),
+        interactiveTargets,
       };
     });
 
@@ -134,8 +162,13 @@ test.describe("320px viewport", () => {
 
     expect(geometry.form.left).toBeGreaterThanOrEqual(geometry.shell.left - 1);
     expect(geometry.form.right).toBeLessThanOrEqual(geometry.shell.right + 1);
-    expect(geometry.replay.height).toBeGreaterThanOrEqual(44);
-    expect(geometry.selectedItem.height).toBeGreaterThanOrEqual(44);
-    expect(geometry.source.height).toBeGreaterThanOrEqual(44);
+
+    const undersizedTargets = geometry.interactiveTargets.filter(
+      ({ width, height }) => width < 44 || height < 44,
+    );
+    expect(
+      undersizedTargets,
+      `Every visible link, button, and input must be at least 44 × 44 CSS px. Measured ${geometry.interactiveTargets.length} targets.`,
+    ).toEqual([]);
   });
 });
