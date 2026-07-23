@@ -8,7 +8,7 @@ import { validateReleaseWorkflowText } from "../scripts/validate-release-workflo
 
 const repositoryRoot = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const workflow = await readFile(resolve(repositoryRoot, ".github/workflows/release.yml"), "utf8");
-const checkout = "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0";
+const checkout = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1";
 
 function replaceOnce(source, search, replacement) {
   assert.ok(source.includes(search), `Fixture source is missing: ${search}`);
@@ -147,7 +147,7 @@ test("every uses node is AST-discovered and pinned across scalar and mapping for
     replaceOnce(workflow, `uses: ${checkout}`, "uses: >-\n          actions/checkout@main"),
     replaceOnce(
       workflow,
-      `      - name: Check out repository\n        uses: ${checkout} # v7.0.0\n        with:\n          fetch-depth: 0\n          persist-credentials: false`,
+      `      - name: Check out repository\n        uses: ${checkout} # v7.0.1\n        with:\n          fetch-depth: 0\n          persist-credentials: false`,
       '      - { name: Flow use, "u\\u0073es": "attacker/action@main" }',
     ),
     `${workflow}\n  reusable-shadow:\n    uses: attacker/repository/.github/workflows/release.yml@main\n`,

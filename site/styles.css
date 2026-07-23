@@ -290,6 +290,8 @@ footer a { justify-self: end; color: var(--ink); font-weight: 800; }
 @media (max-width: 600px) {
   .header { min-height: 68px; padding: 0 1.1rem; }
   .header img { width: 36px; height: 36px; }
+  a, button, input { min-width: 2.75rem; min-height: 2.75rem; }
+  a { display: inline-flex; align-items: center; }
   .hero, .section, footer { width: calc(100% - 2.2rem); }
   .hero { min-height: auto; padding: 4rem 0; }
   h1 { max-width: none; font-size: clamp(3.1rem,14.6vw,4rem); }

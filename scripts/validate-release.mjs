@@ -13,7 +13,8 @@ import { validateReleaseWorkflowText } from "./validate-release-workflow.mjs";
 const repositoryRoot = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const semanticVersionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const sourceCommitPattern = /^[0-9a-f]{40}$/;
-const releaseTooling = {
+const reviewedDevelopmentTooling = {
+  "@playwright/test": "1.61.1",
   "remark-parse": "11.0.0",
   unified: "11.0.5",
   yaml: "2.9.0",
@@ -214,7 +215,11 @@ export function validateVersionTexts({ packageJson, packageLockJson, changelog, 
   assert.equal(packageMetadata.private, true, "The CLI package must remain private on npm; distribution uses GitHub Releases.");
   assert.equal(packageMetadata.license, "MIT", "Package licensing metadata must use the MIT SPDX identifier.");
   assert.deepEqual(packageMetadata.dependencies ?? {}, {}, "The DIG CLI must not acquire runtime dependencies.");
-  assert.deepEqual(packageMetadata.devDependencies, releaseTooling, "Release parser tooling must remain exactly pinned.");
+  assert.deepEqual(
+    packageMetadata.devDependencies,
+    reviewedDevelopmentTooling,
+    "Development tooling must remain exactly pinned.",
+  );
   assert.equal(lockMetadata.version, version, "package-lock.json must match package.json.");
   assert.equal(lockMetadata.packages?.[""]?.version, version, "The lockfile root version must match package.json.");
   assert.equal(
@@ -224,8 +229,8 @@ export function validateVersionTexts({ packageJson, packageLockJson, changelog, 
   );
   assert.deepEqual(
     lockMetadata.packages?.[""]?.devDependencies,
-    releaseTooling,
-    "The lockfile root must pin the reviewed release parser tooling.",
+    reviewedDevelopmentTooling,
+    "The lockfile root must pin the reviewed development tooling.",
   );
   const matchingHeadings = parseChangelogSections(changelog).filter((heading) => heading.version === version);
   assert.equal(matchingHeadings.length, 1, `CHANGELOG.md must contain one real, dated ${version} heading.`);

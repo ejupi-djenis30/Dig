@@ -26,7 +26,12 @@ import {
 
 const VERSION = "2.1.4";
 const COMMIT = "a".repeat(40);
-const RELEASE_TOOLING = { "remark-parse": "11.0.0", unified: "11.0.5", yaml: "2.9.0" };
+const RELEASE_TOOLING = {
+  "@playwright/test": "1.61.1",
+  "remark-parse": "11.0.0",
+  unified: "11.0.5",
+  yaml: "2.9.0",
+};
 const repositoryRoot = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const temporaryDirectories = new Set();
 

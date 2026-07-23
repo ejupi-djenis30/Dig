@@ -19,6 +19,7 @@
   "scripts": {
     "start": "node ./bin/dig.mjs --help",
     "test": "node --test",
+    "test:e2e": "playwright test",
     "check:site": "node ./scripts/validate-site.mjs",
     "check:release": "node ./scripts/validate-release.mjs",
     "check": "npm test && npm run check:site && npm run check:release"
@@ -27,6 +28,7 @@
     "node": ">=20"
   },
   "devDependencies": {
+    "@playwright/test": "1.61.1",
     "remark-parse": "11.0.0",
     "unified": "11.0.5",
     "yaml": "2.9.0"
