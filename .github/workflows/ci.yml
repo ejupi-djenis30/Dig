@@ -45,7 +45,57 @@ jobs:
           [[ "$(npm --version)" == "${EXPECTED_NPM_VERSION}" ]]
       - run: npm ci --ignore-scripts
       - run: npm run check
+      - run: npm pack --ignore-scripts --dry-run
       - run: npm audit --audit-level=moderate
+
+  container-smoke:
+    name: Container build and smoke
+    timeout-minutes: 10
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the production image
+        run: docker build --tag dig-smoke:local .
+      - name: Exercise the authenticated loopback deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          cleanup() {
+            docker rm --force dig-smoke >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          docker run --detach \
+            --name dig-smoke \
+            --read-only \
+            --tmpfs /tmp:size=16m,mode=1777,noexec,nosuid,nodev \
+            --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --pids-limit 100 \
+            --env DIG_ACCESS_TOKEN=ci-smoke-token-32-bytes-long-0001 \
+            --env DIG_ORIGIN=http://127.0.0.1:4175 \
+            --publish 127.0.0.1:4175:4175 \
+            dig-smoke:local
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4175/healthz >/dev/null; then
+              break
+            fi
+            if [[ "$attempt" == "30" ]]; then
+              docker logs dig-smoke
+              exit 1
+            fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:4175/Dig/api/config |
+            grep --fixed-strings '"requiresAccessToken":true'
+          curl --fail --silent \
+            --header 'Authorization: Bearer ci-smoke-token-32-bytes-long-0001' \
+            --header 'Content-Type: application/json' \
+            --data '{"address":"gopher://example.org/hURL%3Ahttps%3A%2F%2Fexample.com%2F"}' \
+            http://127.0.0.1:4175/Dig/api/fetch |
+            grep --fixed-strings '"kind":"external"'
 
   browser-e2e:
     name: Chromium E2E

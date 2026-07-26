@@ -24,7 +24,7 @@ import {
   verifyPublishedAssets,
 } from "../scripts/publish-release.mjs";
 
-const VERSION = "2.1.4";
+const VERSION = "3.0.0";
 const COMMIT = "a".repeat(40);
 const RELEASE_TOOLING = {
   "@playwright/test": "1.61.1",

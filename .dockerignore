@@ -1,0 +1,15 @@
+.git
+.github
+.serena
+.env
+.env.*
+coverage
+docs
+e2e
+node_modules
+playwright-report
+release
+scripts
+test
+test-results
+*.log
