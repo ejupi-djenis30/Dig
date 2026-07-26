@@ -51,7 +51,7 @@ body:
       options:
         - label: I searched existing issues and proposals.
           required: true
-        - label: This proposal does not turn the hosted demo into an open Gopher proxy.
+        - label: This proposal keeps the static Pages explorer fixture-only and does not add a remote proxy.
           required: true
         - label: I did not include private hosts, selectors, queries, or response data.
           required: true

@@ -1,23 +1,25 @@
 {
   "name": "dig-gopher-explorer",
-  "version": "2.1.4",
+  "version": "3.0.0",
   "private": true,
   "license": "MIT",
   "type": "module",
-  "description": "A small, inspectable Gopher protocol client and browser-based protocol explorer.",
+  "description": "A bounded Gopher client, local gateway, and protocol inspector.",
   "bin": {
     "dig-gopher": "./bin/dig.mjs"
   },
   "files": [
     "bin",
     "src",
-    "site/protocol.mjs",
+    "site",
     "CHANGELOG.md",
     "LICENSE",
     "SECURITY.md"
   ],
   "scripts": {
-    "start": "node ./bin/dig.mjs --help",
+    "start": "node ./bin/dig.mjs serve",
+    "dev": "node ./scripts/serve-test-app.mjs",
+    "fixture": "node ./scripts/gopher-fixture.mjs",
     "test": "node --test",
     "test:e2e": "playwright test",
     "check:site": "node ./scripts/validate-site.mjs",

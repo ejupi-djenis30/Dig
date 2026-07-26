@@ -1,0 +1,24 @@
+services:
+  dig:
+    build:
+      context: .
+    environment:
+      DIG_ACCESS_TOKEN: ${DIG_ACCESS_TOKEN:?Set DIG_ACCESS_TOKEN to at least 16 bytes}
+      DIG_ORIGIN: ${DIG_ORIGIN:-http://127.0.0.1:4175}
+    ports:
+      - "127.0.0.1:4175:4175"
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777,noexec,nosuid,nodev
+    pids_limit: 100
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped

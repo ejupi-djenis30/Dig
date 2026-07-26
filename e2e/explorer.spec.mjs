@@ -16,7 +16,10 @@ test.beforeEach(async ({ page }) => {
   });
   await page.route("**/*", (route) => {
     const url = new URL(route.request().url());
-    if (url.origin === LOCAL_ORIGIN || ["blob:", "data:"].includes(url.protocol)) {
+    if (
+      url.origin === LOCAL_ORIGIN ||
+      ["blob:", "data:"].includes(url.protocol)
+    ) {
       return route.continue();
     }
     outbound.push(url.href);
@@ -25,50 +28,106 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.afterEach(async ({ page }) => {
-  expect(runtimeErrors.get(page) ?? [], "The explorer emitted runtime errors").toEqual([]);
-  expect(outboundRequests.get(page) ?? [], "The explorer made an outbound request").toEqual([]);
+  expect(
+    runtimeErrors.get(page) ?? [],
+    "The explorer emitted runtime errors",
+  ).toEqual([]);
+  expect(
+    outboundRequests.get(page) ?? [],
+    "The explorer made a browser request outside its own origin",
+  ).toEqual([]);
 });
 
 async function openExplorer(page) {
   await page.goto("./");
-  await expect(page.getByRole("heading", { name: "Follow the protocol, line by line." })).toBeVisible();
-  await expect(page.locator("[data-menu] .menu-item")).toHaveCount(8);
-  await expect(page.locator("[data-count]")).toHaveText("8 items");
+  await expect(
+    page.getByRole("heading", {
+      name: "Follow the protocol, line by line.",
+    }),
+  ).toBeVisible();
+  await expect(page.locator("[data-mode]")).toHaveText("local / live TCP");
+  await expect(page.locator("[data-resource] .menu-item")).toHaveCount(6);
+  await expect(page.locator("[data-count]")).toHaveText("6 items");
+  await expect(page.locator("[data-security-banner]")).toContainText(
+    "Private and loopback destinations",
+  );
 }
 
-test("loads the recorded menu, inspects a line, and replays the fixture", async ({ page }) => {
+test("navigates a real TCP fixture and supports back and forward", async ({
+  page,
+}) => {
   await openExplorer(page);
+  const welcome = page
+    .locator("[data-resource] .menu-item")
+    .filter({ hasText: "Welcome to DIG" });
+  await welcome.click();
 
-  const menuItems = page.locator("[data-menu] .menu-item");
-  await expect(menuItems.first()).toHaveAttribute("aria-current", "true");
-  await expect(page.locator("[data-type]")).toHaveText("INF");
-  await expect(page.locator("[data-type-name]")).toHaveText("i · Information");
-  await expect(page.locator("[data-label]")).toHaveText("DIG ARCHIVE — a recorded Gopher menu");
-  await expect(page.locator("[data-selector]")).toHaveText("fake");
+  await expect(page.locator("[data-resource-heading]")).toHaveText(
+    "TEXT RESPONSE",
+  );
+  await expect(page.locator(".text-resource")).toContainText(
+    "This response came from a real TCP socket.",
+  );
+  await expect(page.locator(".text-resource")).toContainText(
+    ".A dot-stuffed line stays visible.",
+  );
+  await expect(page.locator("[data-sha]")).toHaveText(/^[a-f0-9]{64}$/u);
+  await expect(page.locator("[data-back]")).toBeEnabled();
 
-  const search = menuItems.filter({ hasText: "Search the archive" });
-  await search.click();
-  await expect(search).toHaveAttribute("aria-current", "true");
-  await expect(page.locator("[data-type]")).toHaveText("ASK");
-  await expect(page.locator("[data-type-name]")).toHaveText("7 · Search");
-  await expect(page.locator("[data-label]")).toHaveText("Search the archive");
-  await expect(page.locator("[data-selector]")).toHaveText("/search");
-  await expect(page.locator("[data-host]")).toHaveText("dig.local");
-  await expect(page.locator("[data-port]")).toHaveText("70");
+  await page.locator("[data-back]").click();
+  await expect(page.locator("[data-resource-heading]")).toHaveText(
+    "GOPHER MENU",
+  );
+  await expect(page.locator("[data-forward]")).toBeEnabled();
+
+  await page.locator("[data-forward]").click();
+  await expect(page.locator("[data-resource-heading]")).toHaveText(
+    "TEXT RESPONSE",
+  );
+});
+
+test("runs a Gopher search, bookmarks the result and exports JSON", async ({
+  page,
+}) => {
+  await openExplorer(page);
+  await page
+    .locator("[data-resource] .menu-item")
+    .filter({ hasText: "Search the archive" })
+    .click();
+  await expect(page.locator("[data-search-form]")).toBeVisible();
+  await page.locator("[data-search-query]").fill("selectors");
+  await page.locator("[data-search-form]").getByRole("button", { name: "Search" }).click();
+
+  await expect(page.locator("[data-resource-heading]")).toHaveText(
+    "GOPHER MENU",
+  );
+  await expect(page.locator("[data-resource]")).toContainText(
+    "Search result for selectors",
+  );
+  await page.locator("[data-bookmark]").click();
+  await expect(page.locator("[data-bookmark-list] li")).toHaveCount(1);
+  await expect(page.locator("[data-bookmark]")).toHaveText("Remove bookmark");
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.locator("[data-export]").click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/response\.json$/u);
+});
+
+test("raw inspection is opt-in and exposes verifiable response metadata", async ({
+  page,
+}) => {
+  await openExplorer(page);
   await expect(page.locator("[data-raw]")).toHaveText(
-    "7Search the archive /search dig.local 70",
+    "iDeterministic fixture\tignored\tinvalid\t0",
   );
-  await expect(page.locator("[data-trace-announcement]")).toHaveText(
-    "Search the archive. Search. Selector /search, host dig.local, port 70.",
+  await page.locator("[data-raw-toggle]").click();
+  await expect(page.locator("[data-raw-toggle]")).toHaveAttribute(
+    "aria-pressed",
+    "true",
   );
-
-  await page.getByRole("button", { name: "Replay" }).click();
-  const replayedFirstItem = page.locator("[data-menu] .menu-item").first();
-  await expect(replayedFirstItem).toBeFocused();
-  await expect(replayedFirstItem).toHaveAttribute("aria-current", "true");
-  await expect(page.locator("[data-label]")).toHaveText("DIG ARCHIVE — a recorded Gopher menu");
-  await expect(page.locator("[data-fixture-status]")).toHaveText(
-    "The local Gopher recording was replayed. No remote request was made.",
+  await expect(page.locator("[data-raw]")).toContainText(
+    "base64 characters / digest verified",
   );
 });
 
@@ -79,16 +138,18 @@ test.describe("320px viewport", () => {
     isMobile: true,
   });
 
-  test("keeps the landing page and interactive trace inside the viewport", async ({ page }) => {
+  test("keeps the live explorer and every visible control in the viewport", async ({
+    page,
+  }) => {
     await openExplorer(page);
     await page.locator("#explorer").scrollIntoViewIfNeeded();
-
-    const protocolSpecimens = page
-      .locator("[data-menu] .menu-item")
-      .filter({ hasText: "Protocol specimens" });
-    await protocolSpecimens.click();
-    await expect(page.locator("[data-label]")).toHaveText("Protocol specimens");
-    await expect(page.locator("[data-selector]")).toHaveText("/specimens");
+    await page
+      .locator("[data-resource] .menu-item")
+      .filter({ hasText: "Protocol archive" })
+      .click();
+    await expect(page.locator("[data-resource]")).toContainText(
+      "Request framing",
+    );
 
     const geometry = await page.evaluate(() => {
       const rectangle = (selector) => {
@@ -100,8 +161,9 @@ test.describe("320px viewport", () => {
           height: bounds.height,
         };
       };
-
-      const interactiveTargets = [...document.querySelectorAll("a[href], button, input")]
+      const interactiveTargets = [
+        ...document.querySelectorAll("a[href], button, input"),
+      ]
         .filter((element) => {
           const bounds = element.getBoundingClientRect();
           const visible =
@@ -122,7 +184,6 @@ test.describe("320px viewport", () => {
               element.textContent?.trim().replace(/\s+/gu, " ") ||
               element.id ||
               element.tagName.toLowerCase(),
-            tag: element.tagName.toLowerCase(),
             width: bounds.width,
             height: bounds.height,
           };
@@ -135,8 +196,6 @@ test.describe("320px viewport", () => {
         shell: rectangle(".browser-shell"),
         bar: rectangle(".browser-bar"),
         form: rectangle("[data-address-form]"),
-        replay: rectangle("[data-address-form] button"),
-        selectedItem: rectangle('.menu-item[aria-current="true"]'),
         trace: rectangle(".trace-pane"),
         source: rectangle(".github-link"),
         interactiveTargets,
@@ -146,29 +205,22 @@ test.describe("320px viewport", () => {
     expect(geometry.viewport).toBe(320);
     expect(geometry.documentWidth).toBeLessThanOrEqual(geometry.viewport);
     expect(geometry.bodyWidth).toBeLessThanOrEqual(geometry.viewport);
-
     for (const area of [
       geometry.shell,
       geometry.bar,
       geometry.form,
-      geometry.replay,
-      geometry.selectedItem,
       geometry.trace,
       geometry.source,
     ]) {
       expect(area.left).toBeGreaterThanOrEqual(-1);
       expect(area.right).toBeLessThanOrEqual(geometry.viewport + 1);
     }
-
-    expect(geometry.form.left).toBeGreaterThanOrEqual(geometry.shell.left - 1);
-    expect(geometry.form.right).toBeLessThanOrEqual(geometry.shell.right + 1);
-
     const undersizedTargets = geometry.interactiveTargets.filter(
       ({ width, height }) => width < 44 || height < 44,
     );
     expect(
       undersizedTargets,
-      `Every visible link, button, and input must be at least 44 × 44 CSS px. Measured ${geometry.interactiveTargets.length} targets.`,
+      "Every visible control must be at least 44 × 44 CSS pixels.",
     ).toEqual([]);
   });
 });

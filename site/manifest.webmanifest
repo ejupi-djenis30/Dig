@@ -1,7 +1,7 @@
 {
   "name": "DIG — Gopher Protocol Explorer",
   "short_name": "DIG",
-  "description": "Inspect a recorded Gopher menu and learn how selectors, hosts, ports, and item types fit together.",
+  "description": "Browse Gopher through a bounded local gateway, inspect protocol fields, and export exact response metadata.",
   "id": "./",
   "start_url": "./",
   "scope": "./",

@@ -30,7 +30,11 @@ function collectUses(value, uses = []) {
 test("CI pins Ubuntu and exact maintained Node.js patch releases", async () => {
   const ci = await workflow("ci.yml");
   assert.deepEqual(ci.permissions, { contents: "read" });
-  assert.deepEqual(Object.keys(ci.jobs).sort(), ["browser-e2e", "test"]);
+  assert.deepEqual(Object.keys(ci.jobs).sort(), [
+    "browser-e2e",
+    "container-smoke",
+    "test",
+  ]);
   assert.equal(ci.jobs.test.name, "test (${{ matrix.node }})");
   assert.equal(ci.jobs.test["runs-on"], "ubuntu-24.04");
   assert.deepEqual(ci.jobs.test.strategy.matrix.include, [
@@ -41,6 +45,7 @@ test("CI pins Ubuntu and exact maintained Node.js patch releases", async () => {
   assert.ok(commands.some((command) => command.includes('"v${EXPECTED_NODE_VERSION}"')));
   assert.ok(commands.some((command) => command.includes('"${EXPECTED_NPM_VERSION}"')));
   assert.ok(commands.includes("npm audit --audit-level=moderate"));
+  assert.ok(commands.includes("npm pack --ignore-scripts --dry-run"));
   assert.ok(commands.every((command) => !command.includes("npm audit --omit=dev")));
 
   const browser = ci.jobs["browser-e2e"];
@@ -62,6 +67,24 @@ test("CI pins Ubuntu and exact maintained Node.js patch releases", async () => {
         step.if === "${{ failure() }}",
     ),
   );
+
+  const container = ci.jobs["container-smoke"];
+  assert.equal(container.name, "Container build and smoke");
+  assert.equal(container["runs-on"], "ubuntu-24.04");
+  assert.equal(container["timeout-minutes"], 10);
+  assert.ok(
+    container.steps.some(
+      (step) => step.run === "docker build --tag dig-smoke:local .",
+    ),
+  );
+  const smoke = container.steps.find((step) =>
+    step.name?.includes("authenticated loopback"),
+  )?.run;
+  assert.match(smoke, /--publish 127\.0\.0\.1:4175:4175/u);
+  assert.match(smoke, /--cap-drop ALL/u);
+  assert.match(smoke, /--pids-limit 100/u);
+  assert.match(smoke, /requiresAccessToken/u);
+  assert.match(smoke, /"kind":"external"/u);
   for (const reference of collectUses(ci)) assert.match(reference, pinnedUse);
 });
 

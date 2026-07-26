@@ -29,6 +29,8 @@ export function fetchGopher(address, options = {}) {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const idleTimeoutMs = options.idleTimeoutMs ?? Math.min(DEFAULT_IDLE_TIMEOUT_MS, timeoutMs);
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
+  const connectAddress = options.connectAddress ?? target.host;
+  const connectFamily = options.connectFamily;
   const query = Object.hasOwn(options, "query") ? options.query : target.query;
   const encoding = options.encoding === undefined ? "utf8" : options.encoding;
   const signal = options.signal;
@@ -38,6 +40,12 @@ export function fetchGopher(address, options = {}) {
   boundedInteger(maxBytes, "maxBytes", 10_485_760);
   if (encoding !== "utf8" && encoding !== null) {
     throw new Error('encoding must be "utf8" or null.');
+  }
+  if (typeof connectAddress !== "string" || !connectAddress) {
+    throw new Error("connectAddress must be a non-empty string.");
+  }
+  if (connectFamily !== undefined && connectFamily !== 4 && connectFamily !== 6) {
+    throw new Error("connectFamily must be 4 or 6.");
   }
   if (
     signal !== undefined &&
@@ -56,7 +64,11 @@ export function fetchGopher(address, options = {}) {
     let settled = false;
     const deadlineAt = performance.now() + timeoutMs;
     const deadlineError = () => new Error(`Request exceeded the ${timeoutMs} ms total deadline.`);
-    const socket = net.createConnection({ host: target.host, port: target.port });
+    const socket = net.createConnection({
+      host: connectAddress,
+      port: target.port,
+      ...(connectFamily === undefined ? {} : { family: connectFamily }),
+    });
     const deadline = setTimeout(() => finish(deadlineError()), timeoutMs);
     const onAbort = () => finish(abortError());
 
@@ -71,7 +83,10 @@ export function fetchGopher(address, options = {}) {
 
     signal?.addEventListener("abort", onAbort, { once: true });
     socket.setTimeout(idleTimeoutMs);
-    socket.on("connect", () => socket.write(request));
+    socket.on("connect", () => {
+      socket.setNoDelay(true);
+      socket.write(request);
+    });
     socket.on("data", (chunk) => {
       received += chunk.length;
       if (received > maxBytes) {
