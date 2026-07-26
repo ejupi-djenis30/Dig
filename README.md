@@ -5,104 +5,128 @@
 
   [![CI](https://github.com/ejupi-djenis30/Dig/actions/workflows/ci.yml/badge.svg)](https://github.com/ejupi-djenis30/Dig/actions/workflows/ci.yml)
 
-  DIG is a small Gopher client for the terminal and an interactive protocol explorer for the web. The CLI opens real `gopher://` addresses. The public explorer uses an included fixture because browsers cannot create raw TCP connections.
+  DIG is a bounded Gopher client with a command line, a local web inspector and a small same-origin gateway. It opens real `gopher://` resources without hiding selectors, item types, response bytes or limits.
 
-  [Live protocol explorer](https://ejupi-djenis30.github.io/Dig/) · [Run the CLI](#run-the-cli) · [Verify a release](#release-integrity) · [Read the parser](site/protocol.mjs) · [Support](SUPPORT.md) · [Security](SECURITY.md)
+  [Public fixture](https://ejupi-djenis30.github.io/Dig/) · [CLI](#command-line) · [Local explorer](#local-explorer) · [Self-hosting](docs/SELF_HOSTING.md) · [API](docs/API.md) · [Security](SECURITY.md)
 </div>
 
-## What works
+## What DIG does
 
-- Parses Gopher menu lines without hiding malformed input.
-- Fetches real Gopher resources over TCP from the Node.js CLI.
-- Enforces an absolute deadline, an idle timeout, an 8 KiB request cap and a bounded response.
-- Parses RFC 4266 search URLs without collapsing selector dot-segments.
-- Keeps binary bytes intact and neutralizes terminal control sequences in interactive output.
-- Renders a deterministic, keyboard-friendly fixture on GitHub Pages.
-- Installs the protocol explorer for repeat offline visits when service workers are available.
-- Explains every item type, selector, host and port as you navigate.
+- Opens Gopher resources over a direct TCP connection.
+- Parses RFC 1436 menus, text framing and RFC 4266 URLs and search queries.
+- Resolves every DNS answer, rejects unsafe mixed results and connects to the validated IP.
+- Applies a total deadline, an idle timeout, an 8 KiB request cap and a bounded response.
+- Preserves binary bytes and reports the response size and SHA-256 digest.
+- Saves exact CLI output through a same-directory temporary file, then exposes the complete target through an atomic name operation.
+- Provides menu navigation, search, session history, bookmarks, JSON export and opt-in raw inspection in the local UI.
+- Runs deterministic TCP, unit, integration and Chromium tests without contacting an external Gopher server.
 
-## Run the CLI
+The GitHub Pages site uses a committed fixture because browser JavaScript cannot open raw TCP sockets. Start the local gateway when you want the same interface backed by real Gopher requests.
 
-Install the tested archive from the [latest release](https://github.com/ejupi-djenis30/Dig/releases/latest):
+## Command line
+
+DIG needs Node.js 20 or newer and has no runtime dependencies.
+
+```bash
+node bin/dig.mjs gopher://gopher.floodgap.com/1/
+node bin/dig.mjs --query "client design" gopher://example.org/7/search
+node bin/dig.mjs --output response.bin gopher://example.org/9/archive.bin
+node bin/dig.mjs --json gopher://example.org/0/readme
+```
+
+Every successful fetch prints a SHA-256 digest and byte count on stderr. `--output` writes the exact response bytes and refuses to replace an existing file unless `--force` is explicit. Binary data is never printed to an interactive terminal.
+
+Private and loopback destinations are blocked by default:
+
+```bash
+node bin/dig.mjs --allow-private gopher://127.0.0.1:7070/1
+```
+
+That flag changes the trust boundary and prints a warning. Use it only for a target you control.
+
+Install a verified release archive:
 
 ```bash
 gh release download --repo ejupi-djenis30/Dig --pattern 'dig-gopher-explorer-*.tgz'
 archive="$(find . -maxdepth 1 -name 'dig-gopher-explorer-*.tgz' -print -quit)"
 gh attestation verify "$archive" --repo ejupi-djenis30/Dig
 npm install --global "$archive"
-dig-gopher gopher://gopher.floodgap.com/1/
+dig-gopher --help
 ```
 
-Compare the archive digest with the release's `SHA256SUMS` before installing it. The package needs
-Node.js 20 or newer; CI verifies Node.js 20 and 22. It opens a direct, unencrypted TCP connection
-to the requested Gopher server.
+Compare the archive with `SHA256SUMS` from the same release before installation.
 
-To work from source instead:
+## Local explorer
+
+Start the browser UI on loopback:
 
 ```bash
-git clone https://github.com/ejupi-djenis30/Dig.git
-cd Dig
-npm ci --ignore-scripts
-npm test
-node bin/dig.mjs gopher://gopher.floodgap.com/1/
+node bin/dig.mjs serve
 ```
 
-Inspect the available limits and raw-output mode with `node bin/dig.mjs --help`.
+Open `http://127.0.0.1:4175/Dig/`. Public Gopher destinations are available. To inspect a private fixture or a server on your own network:
 
-Use only servers you trust and are authorized to reach. The CLI makes a direct, unencrypted
-network connection to the host in the URL, including local or private addresses. Redirect binary
-items to a file; DIG refuses to print them directly to a terminal. The web explorer never connects to
-a Gopher server.
+```bash
+node bin/dig.mjs serve --allow-private
+```
+
+The UI stores navigation history in `sessionStorage`, bookmarks in `localStorage` and a hosted access token in `sessionStorage`. It does not send analytics. The service worker never caches API responses.
+
+For a deterministic local session:
+
+```bash
+# terminal 1
+npm run fixture
+
+# terminal 2
+node bin/dig.mjs serve --allow-private
+```
+
+Then open `gopher://127.0.0.1:7070/1` in the address bar.
+
+See [self-hosting](docs/SELF_HOSTING.md) for Docker and authenticated hosted mode. The JSON contract is documented in [the API reference](docs/API.md).
+
+## Security boundary
+
+Gopher is plaintext. DIG cannot authenticate a Gopher server or protect selectors and response data in transit.
+
+Hosted mode is not an anonymous proxy. It requires an access token, refuses private destinations, rejects a hostname if any DNS answer is non-public, and connects to the IP it already validated. Local private access requires an explicit flag and visible warning. The gateway accepts fetches only from its own browser origin and never emits CORS headers.
+
+Read [SECURITY.md](SECURITY.md) before exposing the gateway beyond loopback.
+
+## Protocol coverage
+
+DIG implements base Gopher requests, menus, text, search and common binary item types. It does not open Telnet sessions, implement Gopher+, add TLS, or reinterpret arbitrary selector bytes as a filesystem path. UTF-8 is the supported URL field encoding.
+
+The exact behavior and deliberate limits are in [docs/PROTOCOL.md](docs/PROTOCOL.md).
+
+## Develop and verify
+
+```bash
+npm ci --ignore-scripts
+npm run check
+npx --no-install playwright install chromium
+npm run test:e2e
+npm audit --audit-level=moderate
+```
+
+`npm run check` covers the protocol, transport, network policy, HTTP API, CLI output, static site and release contracts. The E2E suite starts a real TCP fixture behind the local gateway and blocks browser requests outside its own origin.
+
+```text
+bin/dig.mjs             executable entry point
+src/client.mjs          bounded TCP transport
+src/network-policy.mjs  DNS and destination policy
+src/resource.mjs        JSON-safe resource model
+src/http-server.mjs     same-origin local/hosted gateway
+src/cli.mjs             fetch and serve commands
+site/protocol.mjs       shared URL, menu and text parser
+site/                    fixture fallback and live inspector
+scripts/gopher-fixture.mjs
+test/ and e2e/           unit, integration and browser tests
+```
 
 ## Release integrity
 
-Every release candidate is built twice from a synchronized stable version and the resulting
-archives must be byte-for-byte identical. It is then installed in a clean prefix and smoke-tested
-through the published `dig-gopher` command. Volatile SBOM metadata is removed and two independently
-generated documents must also match byte for byte. The release bundle contains the npm
-archive, a CycloneDX SBOM, dependency evidence, the exact source commit, release metadata and a
-complete `SHA256SUMS` manifest. Tagged releases are accepted only when the tag matches the project
-version and the tagged commit remains contained in reviewed `main`. Once publication is authorized,
-GitHub attests every release asset, including `SHA256SUMS`, and verifies the OIDC identity, source
-commit, tag ref and signer workflow. The publisher binds its draft to an exact source, checksum
-manifest and changelog contract. Release headings and notes come from a CommonMark AST, so examples,
-quotes and raw HTML cannot impersonate a release section. The workflow itself is read as a YAML AST:
-duplicate or shadow keys, aliases, explicit tags, unexpected jobs, permission shortcuts and unpinned
-actions fail closed. The publisher can recover interrupted creates, uploads and promotions without
-adopting a foreign draft, even after reviewed `main` advances beyond the tagged commit. Before
-promotion it rechecks the remote tag, default-branch ancestry, release ID and complete asset
-inventory. GitHub must report the result as latest and immutable. Rerunning the publisher succeeds
-without mutation only when that immutable release still matches the same contract, ID, assets, sizes
-and digests.
+Release validation keeps the package version, lockfile, CLI output and changelog aligned. It checks the exact archive inventory, rebuilds artifacts for reproducibility, verifies checksums and source binding, and publishes only the reviewed tag contract. GitHub attestations bind released assets to the repository, commit, tag and signer workflow.
 
-CI and Pages run on pinned Ubuntu and exact Node.js patch releases. Pages builds the tested static
-artifact with read-only source access; only its separate deployment job receives `pages: write` and
-an OIDC token. YAML and CommonMark parsers are exact-pinned development dependencies and are not
-shipped as CLI runtime dependencies.
-
-DIG is licensed under MIT. Release publication still fails closed unless the repository contains the
-canonical `LICENSE`, package and lockfile metadata declare `MIT`, and the reviewed publication gate
-remains enabled. A tag alone cannot bypass those checks.
-
-## Structure
-
-```text
-bin/dig.mjs          interactive terminal client
-src/client.mjs       bounded TCP transport
-site/protocol.mjs    shared URL and menu parser
-site/                static GitHub Pages experience
-test/                parser and transport tests
-```
-
-## Protocol boundaries
-
-DIG implements the base request, menu, text and search-URL behavior used by this project. It does
-not implement Gopher+, Telnet sessions, TLS, authentication or automatic downloads. Selectors are
-decoded as UTF-8 strings, so arbitrary non-UTF-8 selector octets are outside the current scope.
-See [the protocol notes](docs/PROTOCOL.md) for the exact invariants and standards references.
-
-## Project history
-
-The repository began as a Flutter interface prototype. Version 2 replaces the original visual scaffold with a working, testable protocol core. Ejupi Labs and DIG contributors share credit for every release.
-
-DIG is available under the [MIT License](LICENSE).
+The package remains private on npm; distribution uses signed GitHub Release artifacts. DIG is available under the [MIT License](LICENSE). Ejupi Labs and DIG contributors share credit for the project.

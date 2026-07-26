@@ -1,19 +1,27 @@
 const CACHE_PREFIX = "dig-protocol-explorer-";
-const CACHE_NAME = `${CACHE_PREFIX}v2.1.4`;
+const CACHE_NAME = `${CACHE_PREFIX}v3.0.0`;
 const CORE_ASSETS = [
   "./",
   "./index.html",
-  "./styles.css?v=2.1.4",
-  "./app.mjs?v=2.1.4",
-  "./protocol.mjs?v=2.1.4",
+  "./styles.css?v=3.0.0",
+  "./app.mjs?v=3.0.0",
+  "./protocol.mjs?v=3.0.0",
   "./manifest.webmanifest",
-  "./fixtures/root.txt?v=2.1.4",
+  "./fixtures/root.txt?v=3.0.0",
   "./assets/dig-mark.svg",
   "./assets/dig-lockup.svg",
 ];
 
 async function cachedOrError(request) {
   return (await caches.match(request)) ?? Response.error();
+}
+
+function isApiRequest(url) {
+  const scope = new URL(self.registration.scope);
+  const scopePath = scope.pathname.endsWith("/")
+    ? scope.pathname
+    : `${scope.pathname}/`;
+  return url.origin === scope.origin && url.pathname.startsWith(`${scopePath}api/`);
 }
 
 self.addEventListener("install", (event) => {
@@ -46,6 +54,7 @@ self.addEventListener("fetch", (event) => {
   if (
     request.method !== "GET" ||
     url.origin !== self.location.origin ||
+    isApiRequest(url) ||
     request.headers.has("range")
   ) {
     return;

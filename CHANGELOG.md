@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.0.0 — 2026-07-26
+
+- Add a real same-origin Gopher gateway with DNS pinning, fail-closed hosted SSRF policy and deterministic TCP integration tests.
+- Turn the web explorer into a live local client with search, history, bookmarks, export, raw inspection and binary downloads.
+- Add atomic CLI output, explicit private-network access, SHA-256 reporting, authenticated hosted mode and Docker self-hosting.
+
 ## 2.1.4 — 2026-07-20
 
 - Credit shared work collectively without publishing individual contributor identities.

@@ -28,7 +28,7 @@
     <link rel="icon" href="assets/dig-mark.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="assets/dig-mark-192.png" />
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="stylesheet" href="styles.css?v=2.1.4" />
+    <link rel="stylesheet" href="styles.css?v=3.0.0" />
     <title>DIG — Gopher Protocol Explorer</title>
   </head>
   <body id="top">
@@ -52,8 +52,8 @@
           <p class="kicker">GOPHER PROTOCOL / PORT 70</p>
           <h1>Follow the protocol,<br /><em>line by line.</em></h1>
           <p class="lead">
-            DIG makes a quiet corner of the internet readable again. Open a menu, inspect its raw
-            fields and understand exactly where each selector leads.
+            DIG opens Gopher without hiding the wire format. Browse a menu, inspect every field
+            and save the exact response with a SHA-256 digest.
           </p>
           <div class="hero-actions">
             <a class="primary-action" href="#explorer">Open the explorer <span aria-hidden="true">↓</span></a>
@@ -92,48 +92,96 @@
           <p class="kicker">01 / INTERACTIVE TRACE</p>
           <h2 id="explorer-title">A menu you can<br />take apart.</h2>
           <p>
-            Browsers cannot open raw TCP sockets, so this page replays a bundled Gopher session.
-            It is a faithful parser demonstration, not a live network proxy.
+            Run DIG locally for real TCP requests with strict time and byte limits. This public
+            page falls back to a committed fixture, so it never pretends a recording is live.
           </p>
         </div>
 
-        <div class="browser-shell">
+        <div class="browser-shell" data-explorer-app aria-busy="false">
           <div class="browser-bar">
             <span class="status-dot"></span>
             <form data-address-form>
               <label class="sr-only" for="address">Gopher address</label>
               <input id="address" type="url" value="gopher://dig.local/1/" autocomplete="off" spellcheck="false" readonly aria-readonly="true" data-address />
-              <button type="submit">Replay</button>
+              <button type="submit" data-go>Open</button>
             </form>
-            <span class="mode">Fixture mode</span>
+            <span class="mode" data-mode>Checking mode</span>
           </div>
+          <div class="explorer-toolbar" aria-label="Explorer controls">
+            <div class="toolbar-group">
+              <button type="button" data-back disabled>← <span>Back</span></button>
+              <button type="button" data-forward disabled><span>Forward</span> →</button>
+              <button type="button" data-home>Home</button>
+            </div>
+            <div class="toolbar-group">
+              <button type="button" data-bookmark disabled>Save bookmark</button>
+              <button type="button" data-raw-toggle aria-pressed="false">Raw off</button>
+              <button type="button" data-export disabled>Export JSON</button>
+            </div>
+          </div>
+          <p class="security-banner" data-security-banner hidden></p>
+          <form class="access-form" data-access-form hidden>
+            <div>
+              <label for="access-token">Hosted access token</label>
+              <p>The token stays in this browser tab and is sent only to this origin.</p>
+            </div>
+            <input id="access-token" name="access-token" type="password" autocomplete="off" data-access-token />
+            <button type="submit">Unlock</button>
+          </form>
+          <form class="search-form" data-search-form hidden>
+            <div>
+              <label for="search-query">Search query</label>
+              <p data-search-target>Enter a query for this Gopher search item.</p>
+            </div>
+            <input id="search-query" name="query" type="search" maxlength="1024" autocomplete="off" data-search-query />
+            <button type="submit">Search</button>
+            <button type="button" data-search-cancel>Cancel</button>
+          </form>
           <div class="browser-grid">
-            <div class="menu-pane">
+            <div class="menu-pane resource-pane">
               <div class="pane-heading">
-                <p>SELECT A MENU LINE</p>
-                <span data-count>0 items</span>
+                <p data-resource-heading>RESOURCE</p>
+                <span data-count>Waiting</span>
               </div>
-              <div class="menu-list" data-menu aria-live="polite"></div>
+              <div class="menu-list resource-content" data-resource aria-live="polite"></div>
             </div>
             <aside class="trace-pane" aria-labelledby="trace-title">
               <p class="trace-kicker" id="trace-title">PROTOCOL TRACE</p>
-              <div class="trace-type" data-type>DIR</div>
-              <h3 data-label>Choose an item</h3>
+              <div class="trace-type" data-type>—</div>
+              <h3 data-label>Waiting for a resource</h3>
               <dl>
-                <div><dt>Type</dt><dd data-type-name>Directory</dd></div>
-                <div><dt>Selector</dt><dd data-selector>/</dd></div>
-                <div><dt>Host</dt><dd data-host>dig.local</dd></div>
-                <div><dt>Port</dt><dd data-port>70</dd></div>
+                <div><dt>Type</dt><dd data-type-name>—</dd></div>
+                <div><dt>Selector</dt><dd data-selector>—</dd></div>
+                <div><dt>Host</dt><dd data-host>—</dd></div>
+                <div><dt>Port</dt><dd data-port>—</dd></div>
+                <div><dt>Bytes</dt><dd data-bytes>—</dd></div>
+                <div><dt>SHA-256</dt><dd data-sha>—</dd></div>
               </dl>
               <div class="raw-line">
-                <span>RAW MENU LINE</span>
-                <code data-raw>waiting for selection</code>
+                <span>WIRE DETAIL</span>
+                <code data-raw>Raw bytes are opt-in.</code>
               </div>
               <p class="sr-only" role="status" aria-live="polite" data-trace-announcement></p>
             </aside>
           </div>
+          <div class="library-grid">
+            <section aria-labelledby="history-panel-title">
+              <div class="library-heading">
+                <h3 id="history-panel-title">Session history</h3>
+                <button type="button" data-clear-history>Clear</button>
+              </div>
+              <ol data-history-list><li class="empty-state">No navigation yet.</li></ol>
+            </section>
+            <section aria-labelledby="bookmark-panel-title">
+              <div class="library-heading">
+                <h3 id="bookmark-panel-title">Bookmarks</h3>
+                <button type="button" data-clear-bookmarks>Clear</button>
+              </div>
+              <ul data-bookmark-list><li class="empty-state">No saved addresses.</li></ul>
+            </section>
+          </div>
         </div>
-        <p class="fixture-note" role="status" data-fixture-status><span aria-hidden="true">●</span> No remote Gopher request is made. The exact fixture is committed with the source.</p>
+        <p class="fixture-note" role="status" aria-live="polite" data-fixture-status><span aria-hidden="true">●</span> Detecting the available transport.</p>
       </section>
 
       <section class="protocol section" id="protocol" aria-labelledby="protocol-title">
@@ -157,9 +205,8 @@
         </div>
         <div class="history-copy">
           <p>
-            The original Flutter prototype drew a browser shell but never opened a Gopher
-            connection. This edition replaces generated project debris with a bounded Node.js
-            client, shared parser, tests and this transparent web demonstration.
+            The first prototype stopped at the browser shell. DIG now has one parser shared by a
+            bounded TCP client, a local gateway, the command line and this inspector.
           </p>
           <p>Ejupi Labs and DIG contributors built both the prototype and the current implementation.</p>
         </div>
@@ -171,6 +218,6 @@
       <p>A small client for a small protocol.</p>
       <a href="https://github.com/ejupi-djenis30/Dig">DIG contributors <span aria-hidden="true">↗</span></a>
     </footer>
-    <script type="module" src="app.mjs?v=2.1.4"></script>
+    <script type="module" src="app.mjs?v=3.0.0"></script>
   </body>
 </html>

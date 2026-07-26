@@ -3,27 +3,39 @@ export const MAX_REQUEST_BYTES = 8_192;
 export const MAX_MENU_ENTRIES = 10_000;
 
 const ITEM_TYPES = Object.freeze({
-  "0": { label: "Text", icon: "TXT", navigable: true },
-  "1": { label: "Directory", icon: "DIR", navigable: true },
-  "2": { label: "CSO search", icon: "CSO", navigable: false },
-  "3": { label: "Error", icon: "ERR", navigable: false },
-  "4": { label: "BinHex", icon: "HEX", navigable: false },
-  "5": { label: "DOS binary", icon: "BIN", navigable: false },
-  "6": { label: "UUencoded", icon: "UUE", navigable: false },
-  "7": { label: "Search", icon: "ASK", navigable: true },
-  "8": { label: "Telnet", icon: "TEL", navigable: false },
-  "9": { label: "Binary", icon: "BIN", navigable: false },
-  g: { label: "GIF image", icon: "GIF", navigable: false },
-  I: { label: "Image", icon: "IMG", navigable: false },
-  i: { label: "Information", icon: "INF", navigable: false },
-  h: { label: "HTML link", icon: "WEB", navigable: false },
+  "0": { label: "Text", icon: "TXT", navigable: true, requestable: true },
+  "1": { label: "Directory", icon: "DIR", navigable: true, requestable: true },
+  "2": { label: "CSO search", icon: "CSO", navigable: false, requestable: false },
+  "3": { label: "Error", icon: "ERR", navigable: false, requestable: false },
+  "4": { label: "BinHex", icon: "HEX", navigable: false, requestable: true },
+  "5": { label: "DOS binary", icon: "BIN", navigable: false, requestable: true },
+  "6": { label: "UUencoded", icon: "UUE", navigable: false, requestable: true },
+  "7": { label: "Search", icon: "ASK", navigable: true, requestable: true },
+  "8": { label: "Telnet", icon: "TEL", navigable: false, requestable: false },
+  "9": { label: "Binary", icon: "BIN", navigable: false, requestable: true },
+  "+": { label: "Redundant server", icon: "ALT", navigable: true, requestable: true },
+  T: { label: "TN3270", icon: "327", navigable: false, requestable: false },
+  g: { label: "GIF image", icon: "GIF", navigable: false, requestable: true },
+  I: { label: "Image", icon: "IMG", navigable: false, requestable: true },
+  s: { label: "Sound", icon: "SND", navigable: false, requestable: true },
+  d: { label: "Document", icon: "DOC", navigable: false, requestable: true },
+  P: { label: "PDF", icon: "PDF", navigable: false, requestable: true },
+  i: { label: "Information", icon: "INF", navigable: false, requestable: false },
+  h: { label: "HTML link", icon: "WEB", navigable: false, requestable: false },
 });
 
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/u;
 const VISIBLE_ASCII = /^[\u0021-\u007e]$/u;
 
 export function itemType(type) {
-  return ITEM_TYPES[type] ?? { label: "Unknown", icon: "???", navigable: false };
+  return (
+    ITEM_TYPES[type] ?? {
+      label: "Unknown",
+      icon: "???",
+      navigable: false,
+      requestable: false,
+    }
+  );
 }
 
 function validateType(type) {

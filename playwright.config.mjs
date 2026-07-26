@@ -33,7 +33,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "node scripts/serve-site.mjs",
+    command: "node scripts/serve-test-app.mjs",
     url: "http://127.0.0.1:4175/Dig/",
     timeout: 10_000,
     reuseExistingServer: !isCI,
