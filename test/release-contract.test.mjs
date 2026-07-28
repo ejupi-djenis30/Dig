@@ -27,7 +27,7 @@ import {
 const VERSION = "3.0.0";
 const COMMIT = "a".repeat(40);
 const RELEASE_TOOLING = {
-  "@playwright/test": "1.61.1",
+  "@playwright/test": "1.62.0",
   "remark-parse": "11.0.0",
   unified: "11.0.5",
   yaml: "2.9.0",
