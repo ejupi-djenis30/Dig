@@ -14,7 +14,7 @@ const repositoryRoot = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const semanticVersionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const sourceCommitPattern = /^[0-9a-f]{40}$/;
 const reviewedDevelopmentTooling = {
-  "@playwright/test": "1.61.1",
+  "@playwright/test": "1.62.0",
   "remark-parse": "11.0.0",
   unified: "11.0.5",
   yaml: "2.9.0",
