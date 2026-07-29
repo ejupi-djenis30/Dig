@@ -9,6 +9,14 @@ import { unified } from "unified";
 import { hasSubstantiveReleaseNoteText } from "./release-note-content.mjs";
 import { compareReleaseAssetNames } from "./release-order.mjs";
 import { validateReleaseWorkflowText } from "./validate-release-workflow.mjs";
+import {
+  androidApplicationId,
+  androidMinimumSdk,
+  androidTargetSdk,
+  androidVersionCode,
+  expectedAndroidPermissions,
+  expectedSigningCertificateSha256,
+} from "./android-release.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const semanticVersionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
@@ -186,14 +194,21 @@ function confinedPath(root, child) {
   return candidate;
 }
 
-function releaseFileNames(version) {
-  return [
+function releaseFileNames(version, { includeAndroid = false } = {}) {
+  const files = [
     "SOURCE_COMMIT",
     `dig-${version}.cdx.json`,
     `dig-gopher-explorer-${version}.tgz`,
     `dig-npm-dependencies-${version}.json`,
     "release-metadata.json",
-  ].sort(compareReleaseAssetNames);
+  ];
+  if (includeAndroid) {
+    files.push(
+      `DIG-${version}.apk`,
+      `DIG-${version}.apk.sha256`,
+    );
+  }
+  return files.sort(compareReleaseAssetNames);
 }
 
 async function sha256(file) {
@@ -265,10 +280,16 @@ export async function validateReleaseMetadata({ root = repositoryRoot, tag } = {
   return version;
 }
 
-export async function validateReleaseBundle({ directory, version, sourceCommit, root = repositoryRoot }) {
+export async function validateReleaseBundle({
+  directory,
+  version,
+  sourceCommit,
+  root = repositoryRoot,
+  requireAndroid = false,
+}) {
   assert.match(version, semanticVersionPattern, "Release bundle version must be stable semantic versioning.");
   assert.match(sourceCommit, sourceCommitPattern, "Source commit must be a lowercase 40-character SHA.");
-  const expectedFiles = releaseFileNames(version);
+  const expectedFiles = releaseFileNames(version, { includeAndroid: requireAndroid });
   const actualFiles = (await readdir(directory))
     .filter((entry) => entry !== "SHA256SUMS")
     .sort(compareReleaseAssetNames);
@@ -293,8 +314,22 @@ export async function validateReleaseBundle({ directory, version, sourceCommit, 
 
   assert.equal(await readFile(resolve(directory, "SOURCE_COMMIT"), "utf8"), `${sourceCommit}\n`);
   const metadata = JSON.parse(await readFile(resolve(directory, "release-metadata.json"), "utf8"));
+  const androidArtifacts = requireAndroid
+    ? {
+        apk: `DIG-${version}.apk`,
+        checksum: `DIG-${version}.apk.sha256`,
+        applicationId: androidApplicationId,
+        versionName: version,
+        versionCode: androidVersionCode(version),
+        minimumSdk: androidMinimumSdk,
+        targetSdk: androidTargetSdk,
+        permissions: [...expectedAndroidPermissions],
+        signingCertificateSha256: expectedSigningCertificateSha256,
+        sourceCommit,
+      }
+    : null;
   assert.deepEqual(metadata, {
-    schemaVersion: 1,
+    schemaVersion: 2,
     project: "DIG",
     version,
     tag: `v${version}`,
@@ -303,8 +338,18 @@ export async function validateReleaseBundle({ directory, version, sourceCommit, 
       cliPackage: `dig-gopher-explorer-${version}.tgz`,
       sbom: `dig-${version}.cdx.json`,
       dependencyEvidence: `dig-npm-dependencies-${version}.json`,
+      android: androidArtifacts,
     },
   });
+  if (requireAndroid) {
+    const apkName = `DIG-${version}.apk`;
+    const apkDigest = await sha256(resolve(directory, apkName));
+    assert.equal(
+      await readFile(resolve(directory, `${apkName}.sha256`), "utf8"),
+      `${apkDigest}  ${apkName}\n`,
+      "The standalone APK checksum does not bind the release APK exactly.",
+    );
+  }
 
   const archive = await readFile(resolve(directory, `dig-gopher-explorer-${version}.tgz`));
   assert.ok(archive.byteLength > 1024, "CLI archive is unexpectedly small.");
@@ -393,6 +438,8 @@ export async function assembleReleaseBundle({
   archive,
   sbom,
   dependencies,
+  apk,
+  apkChecksum,
 }) {
   assert.match(sourceCommit, sourceCommitPattern, "Source commit must be a lowercase 40-character SHA.");
   const version = await validateReleaseMetadata({ root });
@@ -405,6 +452,16 @@ export async function assembleReleaseBundle({
     [`dig-${version}.cdx.json`, resolve(sbom)],
     [`dig-npm-dependencies-${version}.json`, resolve(dependencies)],
   ]);
+  const includeAndroid = apk !== undefined || apkChecksum !== undefined;
+  assert.equal(
+    apk !== undefined && apkChecksum !== undefined,
+    includeAndroid,
+    "Android release assembly requires both the APK and its checksum.",
+  );
+  if (includeAndroid) {
+    inputs.set(`DIG-${version}.apk`, resolve(apk));
+    inputs.set(`DIG-${version}.apk.sha256`, resolve(apkChecksum));
+  }
   for (const [name, source] of inputs) {
     assert.ok((await stat(source)).isFile(), `Release input is not a file: ${relative(root, source)}`);
     await copyFile(source, confinedPath(output, name));
@@ -412,7 +469,7 @@ export async function assembleReleaseBundle({
 
   await writeFile(resolve(output, "SOURCE_COMMIT"), `${sourceCommit}\n`, "utf8");
   const metadata = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     project: "DIG",
     version,
     tag: `v${version}`,
@@ -421,15 +478,34 @@ export async function assembleReleaseBundle({
       cliPackage: `dig-gopher-explorer-${version}.tgz`,
       sbom: `dig-${version}.cdx.json`,
       dependencyEvidence: `dig-npm-dependencies-${version}.json`,
+      android: includeAndroid
+        ? {
+            apk: `DIG-${version}.apk`,
+            checksum: `DIG-${version}.apk.sha256`,
+            applicationId: androidApplicationId,
+            versionName: version,
+            versionCode: androidVersionCode(version),
+            minimumSdk: androidMinimumSdk,
+            targetSdk: androidTargetSdk,
+            permissions: [...expectedAndroidPermissions],
+            signingCertificateSha256: expectedSigningCertificateSha256,
+            sourceCommit,
+          }
+        : null,
     },
   };
   await writeFile(resolve(output, "release-metadata.json"), `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
   const checksums = [];
-  for (const name of releaseFileNames(version)) {
+  for (const name of releaseFileNames(version, { includeAndroid })) {
     checksums.push(`${await sha256(confinedPath(output, name))}  ${name}`);
   }
   await writeFile(resolve(output, "SHA256SUMS"), `${checksums.join("\n")}\n`, "utf8");
-  await validateReleaseBundle({ directory: output, version, sourceCommit });
+  await validateReleaseBundle({
+    directory: output,
+    version,
+    sourceCommit,
+    requireAndroid: includeAndroid,
+  });
   return version;
 }
 
@@ -441,7 +517,10 @@ function parseArguments(args) {
     "--archive",
     "--sbom",
     "--dependencies",
+    "--apk",
+    "--apk-checksum",
     "--verify-bundle",
+    "--require-android",
   ]);
   const parsed = new Map();
   for (let index = 0; index < args.length; index += 2) {
@@ -472,12 +551,19 @@ if (isMainModule) {
       archive: parsed.get("--archive"),
       sbom: parsed.get("--sbom"),
       dependencies: parsed.get("--dependencies"),
+      apk: parsed.get("--apk"),
+      apkChecksum: parsed.get("--apk-checksum"),
     });
     console.log(`DIG ${version} release bundle validated.`);
   } else if (verifyDirectory) {
     assert.ok(sourceCommit, "--verify-bundle requires --commit.");
     const version = await validateReleaseMetadata({ tag });
-    await validateReleaseBundle({ directory: resolve(verifyDirectory), version, sourceCommit });
+    await validateReleaseBundle({
+      directory: resolve(verifyDirectory),
+      version,
+      sourceCommit,
+      requireAndroid: parsed.get("--require-android") === "true" || tag !== undefined,
+    });
     console.log(`DIG ${version} release bundle verified.`);
   } else {
     console.log(await validateReleaseMetadata({ tag }));

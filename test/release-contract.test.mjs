@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -450,6 +451,7 @@ test("release bundle has exact inventory, source binding, and checksums", async 
   const temporaryRoot = await mkdtemp(join(tmpdir(), "dig-release-contract-"));
   const inputs = join(temporaryRoot, "inputs");
   const output = join(temporaryRoot, "release");
+  const androidOutput = join(temporaryRoot, "release-android");
   await mkdir(inputs);
   assert.ok(process.env.npm_execpath, "Tests must run through npm so the pack command is portable.");
   const packed = spawnSync(
@@ -478,10 +480,55 @@ test("release bundle has exact inventory, source binding, and checksums", async 
     }),
   );
   await writeFile(dependencies, JSON.stringify({ name: "dig-gopher-explorer", version: VERSION }));
+  const apk = join(inputs, `DIG-${VERSION}.apk`);
+  const apkChecksum = `${apk}.sha256`;
+  const apkBytes = Buffer.from("signed-apk-fixture");
+  const apkDigest = createHash("sha256").update(apkBytes).digest("hex");
+  await writeFile(apk, apkBytes);
+  await writeFile(apkChecksum, `${apkDigest}  DIG-${VERSION}.apk\n`);
 
   try {
     await assembleReleaseBundle({ outputDirectory: output, sourceCommit: COMMIT, archive, sbom, dependencies });
     await validateReleaseBundle({ directory: output, version: VERSION, sourceCommit: COMMIT });
+    await assembleReleaseBundle({
+      outputDirectory: androidOutput,
+      sourceCommit: COMMIT,
+      archive,
+      sbom,
+      dependencies,
+      apk,
+      apkChecksum,
+    });
+    await validateReleaseBundle({
+      directory: androidOutput,
+      version: VERSION,
+      sourceCommit: COMMIT,
+      requireAndroid: true,
+    });
+    const androidMetadata = JSON.parse(
+      await readFile(join(androidOutput, "release-metadata.json"), "utf8"),
+    );
+    assert.equal(androidMetadata.schemaVersion, 2);
+    assert.equal(androidMetadata.artifacts.android.apk, `DIG-${VERSION}.apk`);
+    assert.equal(androidMetadata.artifacts.android.sourceCommit, COMMIT);
+    assert.equal(androidMetadata.artifacts.android.versionCode, 30200);
+    assert.match(
+      await readFile(join(androidOutput, "SHA256SUMS"), "utf8"),
+      new RegExp(`DIG-${VERSION.replaceAll(".", "\\.")}\\.apk$`, "m"),
+    );
+    await writeFile(
+      join(androidOutput, `DIG-${VERSION}.apk.sha256`),
+      `${"0".repeat(64)}  DIG-${VERSION}.apk\n`,
+    );
+    await assert.rejects(
+      () => validateReleaseBundle({
+        directory: androidOutput,
+        version: VERSION,
+        sourceCommit: COMMIT,
+        requireAndroid: true,
+      }),
+      /Checksum mismatch|standalone APK checksum/,
+    );
     await writeFile(join(output, "SOURCE_COMMIT"), `${"b".repeat(40)}\n`);
     await assert.rejects(
       () => validateReleaseBundle({ directory: output, version: VERSION, sourceCommit: COMMIT }),

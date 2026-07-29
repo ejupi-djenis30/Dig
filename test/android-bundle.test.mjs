@@ -74,9 +74,11 @@ test("Capacitor production config uses only local secure assets", async () => {
   assert.equal(config.server.allowNavigation, undefined);
 });
 
-test("Android release tooling pins the signing identity and Gradle distribution", async () => {
-  const [publisher, wrapper] = await Promise.all([
+test("Android release tooling pins signing, source binding, and Gradle distribution", async () => {
+  const [releasePolicy, publisher, verifier, wrapper] = await Promise.all([
+    readFile(new URL("scripts/android-release.mjs", repositoryRoot), "utf8"),
     readFile(new URL("scripts/build-android-apk.mjs", repositoryRoot), "utf8"),
+    readFile(new URL("scripts/verify-android-apk.mjs", repositoryRoot), "utf8"),
     readFile(
       new URL("android/gradle/wrapper/gradle-wrapper.properties", repositoryRoot),
       "utf8",
@@ -84,13 +86,21 @@ test("Android release tooling pins the signing identity and Gradle distribution"
   ]);
 
   assert.match(
-    publisher,
+    releasePolicy,
     /expectedSigningCertificateSha256\s*=\s*\n?\s*"15a35456cf92a58c39072bc0306df0843467f529daf361460c15d201a2705f87"/u,
   );
   assert.match(
-    publisher,
+    releasePolicy,
     /certificateSha256 !== expectedSigningCertificateSha256/u,
   );
+  assert.match(releasePolicy, /v2 scheme \(APK Signature Scheme v2\)", true/u);
+  assert.match(releasePolicy, /v3 scheme \(APK Signature Scheme v3\)", true/u);
+  assert.match(releasePolicy, /Number of signers: 1/u);
+  assert.match(releasePolicy, /Verified for SourceStamp: false/u);
+  assert.match(publisher, /DIG_SOURCE_COMMIT/u);
+  assert.match(publisher, /release-source\.json/u);
+  assert.match(releasePolicy, /embedded release source does not match/u);
+  assert.match(verifier, /standalone APK checksum does not bind/u);
   assert.match(
     wrapper,
     /^distributionSha256Sum=ed1a8d686605fd7c23bdf62c7fc7add1c5b23b2bbc3721e661934ef4a4911d7c$/mu,

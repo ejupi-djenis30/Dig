@@ -105,8 +105,10 @@ The command creates `.android-signing/dig-release.p12` and `.android-signing/rel
 
 With that local identity present, produce the signed release:
 
-```bash
+```powershell
+$env:DIG_SOURCE_COMMIT = git rev-parse HEAD
 npm run android:apk
+Remove-Item Env:DIG_SOURCE_COMMIT
 ```
 
 The command synchronizes the Android assets, runs `testDebugUnitTest`, `lintRelease` and `assembleRelease`, then copies the signed APK and its SHA-256 file to:
@@ -125,6 +127,31 @@ For CI or another controlled signing host, do not copy `release-signing.properti
 
 `DIG_ANDROID_KEYSTORE_PATH` must identify the provisioned keystore file on that host. The build fails closed when only part of the configuration is present or when the keystore cannot be read. Never echo these values, pass passwords as literal command arguments, include them in an artifact, or expose them in CI logs.
 
+The GitHub Actions release workflow uses these repository secret names:
+
+- `DIG_ANDROID_KEYSTORE_BASE64`: the complete PKCS#12 keystore encoded as one standard Base64 value.
+- `DIG_ANDROID_KEYSTORE_PASSWORD`: the keystore password.
+- `DIG_ANDROID_KEY_ALIAS`: the dedicated DIG release alias.
+- `DIG_ANDROID_KEY_PASSWORD`: the private-key password.
+
+The workflow decodes the keystore only into its temporary runner directory with mode `0600`, never
+prints it and removes the temporary file in an `always()` cleanup step. A tag build and a manual
+rehearsal with `expected_tag` both fail before Android compilation if any required secret is absent.
+Normal pull-request and `main` checks do not receive or use signing secrets.
+
+Configure the keystore without writing its Base64 representation to the terminal:
+
+```powershell
+$keystore = Resolve-Path '.android-signing\dig-release.p12'
+[Convert]::ToBase64String([IO.File]::ReadAllBytes($keystore)) |
+  gh secret set DIG_ANDROID_KEYSTORE_BASE64 --repo ejupi-djenis30/Dig
+```
+
+Set the remaining three secrets from the protected
+`.android-signing/release-signing.properties` values through standard input as well. Do not place
+their values in command history. GitHub exposes only secret names after configuration; values
+cannot be read back.
+
 Running Gradle's `assembleRelease` directly without either complete signing source may produce an unsigned APK, but `npm run android:apk` intentionally refuses to publish one.
 
 ## Verify the APK
@@ -140,7 +167,18 @@ $apk = Resolve-Path 'release\android\DIG-3.2.0.apk'
   $apk
 ```
 
-The expected package is `com.ejupilabs.dig`, the minimum SDK is 24, the target SDK is 36 and `INTERNET` is the only requested Android permission. The accepted release certificate SHA-256 is `15a35456cf92a58c39072bc0306df0843467f529daf361460c15d201a2705f87`; `npm run android:apk` rejects any other signing identity.
+The expected package is `com.ejupilabs.dig`, the minimum SDK is 24, the target SDK is 36 and
+`INTERNET` is the only app-requested Android permission. AndroidX also contributes the
+signature-protected `com.ejupilabs.dig.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`; the release
+verifier rejects any other permission. The accepted release certificate SHA-256 is
+`15a35456cf92a58c39072bc0306df0843467f529daf361460c15d201a2705f87`;
+`npm run android:apk` rejects any other signing identity.
+
+Every signed APK also contains `assets/public/release-source.json`. The build writes the exact
+40-character source commit into that file before Capacitor synchronization. The tag publication
+job downloads the candidate, independently rechecks the APK with Android build-tools, compares the
+embedded commit with the tag target and verifies the standalone and global checksum manifests
+before requesting attestations or creating an immutable release.
 
 Also rebuild the Android web bundle and run its exclusion test:
 

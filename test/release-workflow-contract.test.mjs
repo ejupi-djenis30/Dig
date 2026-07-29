@@ -127,7 +127,7 @@ test("release workflow triggers and permissions are semantic exact mappings", ()
     /invalid YAML|Map keys must be unique/,
   );
   rejects(
-    replaceOnce(workflow, "    timeout-minutes: 10", '    timeout-minutes: 10\n    env:\n      RELEASE_PUBLICATION_ENABLED: "true"'),
+    replaceOnce(workflow, "    timeout-minutes: 20", '    timeout-minutes: 20\n    env:\n      RELEASE_PUBLICATION_ENABLED: "true"'),
     /shadowed or overridden|missing, extra, or shadow keys/,
   );
 });
@@ -204,7 +204,11 @@ test("release workflow exact-contract binds actions, run blocks, gates, and publ
     /Reverify tag, default-branch source, inventory, and checksums.*run changed unexpectedly/,
   );
   rejects(
-    replaceOnce(workflow, '[[ "${source_commit}" == "$(git rev-parse HEAD)" ]]', "true"),
+    replaceOnce(
+      workflow,
+      '[[ "$(git rev-parse "${GITHUB_REF_NAME}^{commit}")" == "${source_commit}" ]]',
+      "true",
+    ),
     /Validate synchronized release metadata and source.*run changed unexpectedly/,
   );
   rejects(replaceOnce(workflow, 'RELEASE_PUBLICATION_ENABLED: "true"', 'RELEASE_PUBLICATION_ENABLED: "false"'), /changed unexpectedly/);
@@ -219,6 +223,46 @@ test("release workflow exact-contract binds actions, run blocks, gates, and publ
       '[[ "${RELEASE_PUBLICATION_ENABLED}" == "true" ]] || true || {',
     ),
     /Enforce static publication approval.*run changed unexpectedly/,
+  );
+  rejects(
+    replaceOnce(
+      workflow,
+      "DIG_ANDROID_KEYSTORE_BASE64: ${{ secrets.DIG_ANDROID_KEYSTORE_BASE64 }}",
+      "DIG_ANDROID_KEYSTORE_BASE64: ${{ secrets.FOREIGN_KEYSTORE }}",
+    ),
+    /Materialize dedicated Android signing identity.*DIG_ANDROID_KEYSTORE_BASE64 changed unexpectedly/,
+  );
+  rejects(
+    replaceOnce(
+      workflow,
+      'printf \'%s\' "${DIG_ANDROID_KEYSTORE_BASE64}" | base64 --decode > "${keystore}"',
+      'printf \'%s\' "${DIG_ANDROID_KEYSTORE_BASE64}" > "${keystore}"',
+    ),
+    /Materialize dedicated Android signing identity.*run changed unexpectedly/,
+  );
+  rejects(
+    replaceOnce(
+      workflow,
+      "if: always() && steps.signing.outcome != 'skipped'",
+      "if: success()",
+    ),
+    /Remove temporary Android signing material.*if changed unexpectedly/,
+  );
+  rejects(
+    replaceOnce(
+      workflow,
+      '[[ "${GITHUB_REF_NAME}" == "${DEFAULT_BRANCH}" ]]',
+      "true",
+    ),
+    /Validate synchronized release metadata and source.*run changed unexpectedly/,
+  );
+  rejects(
+    replaceOnce(
+      workflow,
+      "--require-android true",
+      "--require-android false",
+    ),
+    /Reverify tag, default-branch source, inventory, and checksums.*run changed unexpectedly/,
   );
   rejects(
     replaceOnce(

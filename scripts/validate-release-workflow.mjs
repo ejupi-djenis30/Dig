@@ -9,10 +9,16 @@ const loneCarriageReturnPattern = /\r(?!\n)/u;
 const actions = Object.freeze({
   checkout: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
   setupNode: "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+  setupJava: "actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95",
+  setupAndroid: "android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699",
   uploadArtifact: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
   downloadArtifact: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
   attest: "actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6",
 });
+
+const androidReleaseCondition =
+  "(github.event_name == 'workflow_dispatch' && inputs.expected_tag != '') || "
+  + "(github.event_name == 'push' && github.ref_type == 'tag')";
 
 function block(...lines) {
   return `${lines.join("\n")}\n`;
@@ -28,18 +34,23 @@ const runs = Object.freeze({
   metadata: block(
     "set -euo pipefail",
     "arguments=()",
+    'source_commit="$(git rev-parse HEAD)"',
     'if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then',
-    '  source_commit="$(git rev-parse "${GITHUB_REF_NAME}^{commit}")"',
-    '  [[ "${source_commit}" == "$(git rev-parse HEAD)" ]]',
+    '  [[ "$(git rev-parse "${GITHUB_REF_NAME}^{commit}")" == "${source_commit}" ]]',
     '  git fetch --no-tags origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"',
     '  default_head="$(git rev-parse "refs/remotes/origin/${DEFAULT_BRANCH}^{commit}")"',
     '  git merge-base --is-ancestor "${source_commit}" "${default_head}"',
     '  arguments+=(--tag "${GITHUB_REF_NAME}")',
     'elif [[ -n "${EXPECTED_TAG}" ]]; then',
+    '  [[ "${GITHUB_REF_TYPE}" == "branch" ]]',
+    '  [[ "${GITHUB_REF_NAME}" == "${DEFAULT_BRANCH}" ]]',
+    '  git fetch --no-tags origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"',
+    '  [[ "$(git rev-parse HEAD)" == "$(git rev-parse "refs/remotes/origin/${DEFAULT_BRANCH}^{commit}")" ]]',
     '  arguments+=(--tag "${EXPECTED_TAG}")',
     "fi",
     'version="$(node scripts/validate-release.mjs "${arguments[@]}")"',
     'printf \'version=%s\\n\' "${version}" >> "${GITHUB_OUTPUT}"',
+    'printf \'source_commit=%s\\n\' "${source_commit}" >> "${GITHUB_OUTPUT}"',
   ),
   testAndAudit: block(
     "npm run check",
@@ -70,14 +81,57 @@ const runs = Object.freeze({
     "npm ls --omit=dev --all --json > target/dependencies-b.json",
     'cmp "target/dig-npm-dependencies-${VERSION}.json" target/dependencies-b.json',
   ),
+  signing: block(
+    "set -euo pipefail",
+    "missing=0",
+    "for name in \\",
+    "  DIG_ANDROID_KEYSTORE_BASE64 \\",
+    "  DIG_ANDROID_KEYSTORE_PASSWORD \\",
+    "  DIG_ANDROID_KEY_ALIAS \\",
+    "  DIG_ANDROID_KEY_PASSWORD",
+    "do",
+    '  if [[ -z "${!name:-}" ]]; then',
+    '    echo "::error::Missing required Actions secret ${name}."',
+    "    missing=1",
+    "  fi",
+    "done",
+    '[[ "${missing}" == "0" ]]',
+    'keystore="${RUNNER_TEMP}/dig-release-signing.p12"',
+    '[[ ! -e "${keystore}" && ! -L "${keystore}" ]]',
+    "umask 077",
+    "set -o noclobber",
+    'printf \'%s\' "${DIG_ANDROID_KEYSTORE_BASE64}" | base64 --decode > "${keystore}"',
+    "set +o noclobber",
+    '[[ -s "${keystore}" && ! -L "${keystore}" ]]',
+    'chmod 0600 "${keystore}"',
+  ),
+  installAndroidSdk: 'sdkmanager --install "platforms;android-36" "build-tools;${ANDROID_BUILD_TOOLS_VERSION}"',
+  buildAndroid: "npm run android:apk",
   assemble: block(
     "set -euo pipefail",
+    "arguments=()",
+    'if [[ "${SIGNED_ANDROID_RELEASE}" == "true" ]]; then',
+    '  apk="${ANDROID_RELEASE_DIRECTORY}/DIG-${VERSION}.apk"',
+    '  checksum="${apk}.sha256"',
+    '  [[ -f "${apk}" && ! -L "${apk}" ]]',
+    '  [[ -f "${checksum}" && ! -L "${checksum}" ]]',
+    '  arguments+=(--apk "${apk}" --apk-checksum "${checksum}")',
+    "fi",
     "node scripts/validate-release.mjs \\",
     "  --assemble release \\",
     '  --commit "$(git rev-parse HEAD)" \\',
     '  --archive "${ARCHIVE}" \\',
     '  --sbom "target/dig-${VERSION}.cdx.json" \\',
-    '  --dependencies "target/dig-npm-dependencies-${VERSION}.json"',
+    '  --dependencies "target/dig-npm-dependencies-${VERSION}.json" \\',
+    '  "${arguments[@]}"',
+  ),
+  cleanupSigning: block(
+    "set -euo pipefail",
+    'case "${KEYSTORE_PATH}" in',
+    '  "${RUNNER_TEMP}"/*) ;;',
+    '  *) echo "::error::Refusing to remove an unsafe signing path."; exit 1 ;;',
+    "esac",
+    'rm -f -- "${KEYSTORE_PATH}"',
   ),
   publicationGate: block(
     "set -euo pipefail",
@@ -113,12 +167,16 @@ const runs = Object.freeze({
     'git fetch --no-tags origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"',
     'default_head="$(git rev-parse "refs/remotes/origin/${DEFAULT_BRANCH}^{commit}")"',
     'git merge-base --is-ancestor "${source_commit}" "${default_head}"',
+    'version="$(node scripts/validate-release.mjs --tag "${GITHUB_REF_NAME}")"',
     'printf \'source_commit=%s\\n\' "${source_commit}" >> "${GITHUB_OUTPUT}"',
+    'printf \'version=%s\\n\' "${version}" >> "${GITHUB_OUTPUT}"',
     "node scripts/validate-release.mjs \\",
     '  --tag "${GITHUB_REF_NAME}" \\',
     "  --verify-bundle release \\",
+    "  --require-android true \\",
     '  --commit "${source_commit}"',
   ),
+  verifyAndroid: 'node scripts/verify-android-apk.mjs --apk "release/DIG-${VERSION}.apk" --checksum "release/DIG-${VERSION}.apk.sha256" --commit "${SOURCE_COMMIT}"',
   verifyAttestations: 'node scripts/verify-attestations.mjs --directory release --repository "${{ github.repository }}" --signer-workflow "${{ github.repository }}/.github/workflows/release.yml" --source-commit "${{ steps.source.outputs.source_commit }}" --source-ref "${{ github.ref }}"',
   publish: 'node scripts/publish-release.mjs --directory release --tag "${{ github.ref_name }}" --repository "${{ github.repository }}" --default-branch "${{ github.event.repository.default_branch }}" --source-commit "${{ steps.source.outputs.source_commit }}"',
 });
@@ -153,11 +211,62 @@ const buildContracts = Object.freeze([
     run: runs.sbom,
   },
   {
+    name: "Set up JDK 21 for signed Android release",
+    if: androidReleaseCondition,
+    uses: actions.setupJava,
+    with: { distribution: "temurin", "java-version": "21", cache: "gradle" },
+  },
+  {
+    name: "Set up Android SDK command-line tools",
+    if: androidReleaseCondition,
+    uses: actions.setupAndroid,
+  },
+  {
+    name: "Install pinned Android SDK",
+    if: androidReleaseCondition,
+    run: runs.installAndroidSdk,
+  },
+  {
+    name: "Materialize dedicated Android signing identity",
+    id: "signing",
+    if: androidReleaseCondition,
+    shell: "bash",
+    env: {
+      DIG_ANDROID_KEYSTORE_BASE64: "${{ secrets.DIG_ANDROID_KEYSTORE_BASE64 }}",
+      DIG_ANDROID_KEYSTORE_PASSWORD: "${{ secrets.DIG_ANDROID_KEYSTORE_PASSWORD }}",
+      DIG_ANDROID_KEY_ALIAS: "${{ secrets.DIG_ANDROID_KEY_ALIAS }}",
+      DIG_ANDROID_KEY_PASSWORD: "${{ secrets.DIG_ANDROID_KEY_PASSWORD }}",
+    },
+    run: runs.signing,
+  },
+  {
+    name: "Build and verify signed Android APK",
+    if: androidReleaseCondition,
+    env: {
+      DIG_ANDROID_KEYSTORE_PATH: "${{ runner.temp }}/dig-release-signing.p12",
+      DIG_ANDROID_KEYSTORE_PASSWORD: "${{ secrets.DIG_ANDROID_KEYSTORE_PASSWORD }}",
+      DIG_ANDROID_KEY_ALIAS: "${{ secrets.DIG_ANDROID_KEY_ALIAS }}",
+      DIG_ANDROID_KEY_PASSWORD: "${{ secrets.DIG_ANDROID_KEY_PASSWORD }}",
+      DIG_ANDROID_RELEASE_DIRECTORY: "${{ runner.temp }}/dig-android-release",
+      DIG_SOURCE_COMMIT: "${{ steps.metadata.outputs.source_commit }}",
+    },
+    run: runs.buildAndroid,
+  },
+  {
+    name: "Remove temporary Android signing material",
+    if: "always() && steps.signing.outcome != 'skipped'",
+    shell: "bash",
+    env: { KEYSTORE_PATH: "${{ runner.temp }}/dig-release-signing.p12" },
+    run: runs.cleanupSigning,
+  },
+  {
     name: "Assemble and reverify release bundle",
     shell: "bash",
     env: {
       VERSION: "${{ steps.metadata.outputs.version }}",
       ARCHIVE: "${{ steps.package.outputs.archive }}",
+      ANDROID_RELEASE_DIRECTORY: "${{ runner.temp }}/dig-android-release",
+      SIGNED_ANDROID_RELEASE: "${{ (github.event_name == 'workflow_dispatch' && inputs.expected_tag != '') || (github.event_name == 'push' && github.ref_type == 'tag') }}",
     },
     run: runs.assemble,
   },
@@ -181,6 +290,19 @@ const publishContracts = Object.freeze([
   { name: "Set up Node.js", uses: actions.setupNode, with: { "node-version": "22.23.1", cache: "npm" } },
   { name: "Verify pinned Node.js toolchain", shell: "bash", run: runs.toolchain },
   {
+    name: "Set up JDK 21 for independent APK verification",
+    uses: actions.setupJava,
+    with: { distribution: "temurin", "java-version": "21", cache: "gradle" },
+  },
+  {
+    name: "Set up Android SDK for independent APK verification",
+    uses: actions.setupAndroid,
+  },
+  {
+    name: "Install pinned Android verification tools",
+    run: runs.installAndroidSdk,
+  },
+  {
     name: "Install verified GitHub CLI",
     shell: "bash",
     env: {
@@ -200,6 +322,14 @@ const publishContracts = Object.freeze([
     shell: "bash",
     env: { DEFAULT_BRANCH: "${{ github.event.repository.default_branch }}" },
     run: runs.reverify,
+  },
+  {
+    name: "Independently verify signed Android APK",
+    env: {
+      VERSION: "${{ steps.source.outputs.version }}",
+      SOURCE_COMMIT: "${{ steps.source.outputs.source_commit }}",
+    },
+    run: runs.verifyAndroid,
   },
   { name: "Attest release assets", uses: actions.attest, with: { "subject-checksums": "release/SHA256SUMS" } },
   { name: "Attest checksum manifest", uses: actions.attest, with: { "subject-path": "release/SHA256SUMS" } },
@@ -358,7 +488,7 @@ function validateTriggers(root) {
   const inputs = mappingEntries(dispatch.get("inputs"), "workflow_dispatch inputs");
   exactKeys(inputs, ["expected_tag"], "workflow_dispatch inputs");
   exactMapping(inputs.get("expected_tag"), {
-    description: "Optional v<version> value to exercise tag validation without publishing",
+    description: "Optional v<version> value to exercise tag validation and signed Android packaging without publishing",
     required: false,
     type: "string",
   }, "expected_tag input");
@@ -376,7 +506,7 @@ function validateStepSequence(node, contracts, label) {
     const stepLabel = `${label}[${index}] ${contract.name}`;
     const step = mappingEntries(node.items[index], stepLabel);
     const expectedKeys = ["name", contract.uses ? "uses" : "run"];
-    for (const optional of ["id", "shell", "env", "with"]) {
+    for (const optional of ["id", "if", "shell", "env", "with"]) {
       if (Object.hasOwn(contract, optional)) expectedKeys.push(optional);
     }
     exactKeys(step, expectedKeys, stepLabel);
@@ -386,6 +516,7 @@ function validateStepSequence(node, contracts, label) {
     if (contract.uses) exactScalar(step.get("uses"), contract.uses, `${stepLabel}.uses`);
     else exactScalar(step.get("run"), contract.run, `${stepLabel}.run`);
     if (contract.id) exactScalar(step.get("id"), contract.id, `${stepLabel}.id`);
+    if (contract.if) exactScalar(step.get("if"), contract.if, `${stepLabel}.if`);
     if (contract.shell) exactScalar(step.get("shell"), contract.shell, `${stepLabel}.shell`);
     if (contract.env) exactMapping(step.get("env"), contract.env, `${stepLabel}.env`);
     if (contract.with) exactMapping(step.get("with"), contract.with, `${stepLabel}.with`);
@@ -403,7 +534,10 @@ export function validateReleaseWorkflowText(workflow) {
   exactScalar(root.get("name"), "Release readiness", "Workflow name");
   validateTriggers(root);
   exactMapping(root.get("permissions"), { contents: "read" }, "Workflow permissions");
-  exactMapping(root.get("env"), { RELEASE_PUBLICATION_ENABLED: "true" }, "Workflow environment");
+  exactMapping(root.get("env"), {
+    RELEASE_PUBLICATION_ENABLED: "true",
+    ANDROID_BUILD_TOOLS_VERSION: "36.0.0",
+  }, "Workflow environment");
   assert.deepEqual(state.publicationFlags, ["$.env.RELEASE_PUBLICATION_ENABLED"], "Release publication approval must not be shadowed or overridden.");
   assert.deepEqual(
     state.permissions.sort(),
@@ -421,7 +555,7 @@ export function validateReleaseWorkflowText(workflow) {
   exactKeys(build, ["name", "runs-on", "steps", "timeout-minutes"], "Build job");
   exactScalar(build.get("name"), "Build and verify release candidate", "Build job name");
   exactScalar(build.get("runs-on"), "ubuntu-24.04", "Build runner");
-  exactScalar(build.get("timeout-minutes"), 15, "Build timeout");
+  exactScalar(build.get("timeout-minutes"), 30, "Build timeout");
 
   const publish = mappingEntries(jobs.get("publish"), "Publish job");
   exactKeys(publish, ["if", "name", "needs", "permissions", "runs-on", "steps", "timeout-minutes"], "Publish job");
@@ -429,7 +563,7 @@ export function validateReleaseWorkflowText(workflow) {
   exactScalar(publish.get("if"), "github.event_name == 'push' && github.ref_type == 'tag'", "Publish condition");
   exactScalar(publish.get("needs"), "build", "Publish dependency");
   exactScalar(publish.get("runs-on"), "ubuntu-24.04", "Publish runner");
-  exactScalar(publish.get("timeout-minutes"), 10, "Publish timeout");
+  exactScalar(publish.get("timeout-minutes"), 20, "Publish timeout");
   exactMapping(publish.get("permissions"), {
     contents: "write",
     "id-token": "write",
