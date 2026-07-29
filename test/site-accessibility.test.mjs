@@ -107,8 +107,9 @@ test("public project surfaces use collective attribution", async () => {
 });
 
 test("mobile app metadata and controls are production-ready", async () => {
-  const [html, styles, manifestSource, privacy] = await Promise.all([
+  const [html, app, styles, manifestSource, privacy] = await Promise.all([
     readFile(new URL("index.html", siteRoot), "utf8"),
+    readFile(new URL("app.mjs", siteRoot), "utf8"),
     readFile(new URL("styles.css", siteRoot), "utf8"),
     readFile(new URL("manifest.webmanifest", siteRoot), "utf8"),
     readFile(new URL("PRIVACY.md", repositoryRoot), "utf8"),
@@ -120,6 +121,9 @@ test("mobile app metadata and controls are production-ready", async () => {
   assert.match(html, /rel="apple-touch-icon" sizes="180x180" href="assets\/dig-mark-180\.png"/u);
   assert.match(html, /data-resource-tab/u);
   assert.match(html, /data-trace-tab/u);
+  assert.match(app, /function bindMobilePanelTab\(tab, panel\)/u);
+  assert.match(app, /tab\.addEventListener\("pointerup"/u);
+  assert.match(app, /tab\.addEventListener\("click", activate\)/u);
   assert.match(html, /href="https:\/\/github\.com\/ejupi-djenis30\/Dig\/blob\/main\/PRIVACY\.md"/u);
   assert.match(styles, /env\(safe-area-inset-top\)/u);
   assert.match(styles, /@media \(display-mode: standalone\)/u);

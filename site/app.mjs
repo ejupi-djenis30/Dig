@@ -1054,13 +1054,16 @@ elements.searchCancel.addEventListener("click", () => {
   elements.searchForm.hidden = true;
 });
 
-elements.resourceTab.addEventListener("click", () => {
-  setMobilePanel("resource", { focus: true });
-});
+function bindMobilePanelTab(tab, panel) {
+  const activate = () => setMobilePanel(panel, { focus: true });
+  tab.addEventListener("pointerup", (event) => {
+    if (event.isPrimary && event.button === 0) activate();
+  });
+  tab.addEventListener("click", activate);
+}
 
-elements.traceTab.addEventListener("click", () => {
-  setMobilePanel("trace", { focus: true });
-});
+bindMobilePanelTab(elements.resourceTab, "resource");
+bindMobilePanelTab(elements.traceTab, "trace");
 
 elements.appNoticeAction.addEventListener("click", () => {
   const action = noticeAction;
