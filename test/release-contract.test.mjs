@@ -24,10 +24,14 @@ import {
   verifyPublishedAssets,
 } from "../scripts/publish-release.mjs";
 
-const VERSION = "3.0.0";
+const VERSION = "3.2.0";
 const COMMIT = "a".repeat(40);
 const RELEASE_TOOLING = {
+  "@capacitor/android": "8.4.2",
+  "@capacitor/cli": "8.4.2",
+  "@capacitor/core": "8.4.2",
   "@playwright/test": "1.62.0",
+  esbuild: "0.28.1",
   "remark-parse": "11.0.0",
   unified: "11.0.5",
   yaml: "2.9.0",

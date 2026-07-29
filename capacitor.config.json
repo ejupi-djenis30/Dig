@@ -1,0 +1,18 @@
+{
+  "appId": "com.ejupilabs.dig",
+  "appName": "DIG",
+  "webDir": "dist/android",
+  "loggingBehavior": "none",
+  "backgroundColor": "#0d1110",
+  "zoomEnabled": false,
+  "android": {
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": false,
+    "minWebViewVersion": 120
+  },
+  "server": {
+    "hostname": "localhost",
+    "androidScheme": "https",
+    "cleartext": false
+  }
+}

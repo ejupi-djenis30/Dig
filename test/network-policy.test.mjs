@@ -25,6 +25,12 @@ test("classifies public, private and IPv4-mapped IPv6 addresses", () => {
     classifyIpAddress("192.168.1.10"),
   );
   assert.equal(classifyIpAddress("2001:db8::1").category, "documentation");
+  assert.equal(classifyIpAddress("3fff::1").category, "documentation");
+  assert.equal(
+    classifyIpAddress("3fff:0fff:ffff:ffff:ffff:ffff:ffff:ffff").category,
+    "documentation",
+  );
+  assert.equal(classifyIpAddress("3fff:1000::1").category, "public");
   assert.equal(classifyIpAddress("2606:2800:220:1:248:1893:25c8:1946").public, true);
 });
 

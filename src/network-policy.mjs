@@ -122,11 +122,12 @@ const IPV6_BLOCKS = [
   ["orchid", "2001:20::", 28, false],
   ["documentation", "2001:db8::", 32, false],
   ["6to4", "2002::", 16, false],
+  ["documentation", "3fff::", 20, false],
 ].map(([category, address, prefixLength, connectableWithOverride]) => ({
   category,
   ...ipv6Prefix(address, prefixLength),
   connectableWithOverride,
-}));
+}));;
 
 export function classifyIpAddress(address) {
   const ipv4 = parseIpv4(address);

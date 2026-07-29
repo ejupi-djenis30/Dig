@@ -1,19 +1,27 @@
 const CACHE_PREFIX = "dig-protocol-explorer-";
-const CACHE_NAME = `${CACHE_PREFIX}v3.0.0`;
+const CACHE_NAME = `${CACHE_PREFIX}v3.2.0`;
 const CORE_ASSETS = [
   "./",
   "./index.html",
-  "./styles.css?v=3.0.0",
-  "./app.mjs?v=3.0.0",
-  "./protocol.mjs?v=3.0.0",
+  "./styles.css?v=3.2.0",
+  "./app.mjs?v=3.2.0",
+  "./protocol.mjs?v=3.2.0",
   "./manifest.webmanifest",
-  "./fixtures/root.txt?v=3.0.0",
+  "./fixtures/root.txt?v=3.2.0",
   "./assets/dig-mark.svg",
   "./assets/dig-lockup.svg",
+  "./assets/dig-mark-180.png",
+  "./assets/dig-mark-192.png",
+  "./assets/dig-mark-512.png",
+  "./assets/dig-mark-maskable.svg",
 ];
 
 async function cachedOrError(request) {
   return (await caches.match(request)) ?? Response.error();
+}
+
+function isServerError(response) {
+  return response.status >= 500 && response.status <= 599;
 }
 
 function isApiRequest(url) {
@@ -28,9 +36,24 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(CACHE_NAME)
-      .then((cache) => cache.addAll(CORE_ASSETS))
-      .then(() => self.skipWaiting()),
+      .then((cache) => cache.addAll(CORE_ASSETS)),
   );
+});
+
+self.addEventListener("message", (event) => {
+  let sourceOrigin = null;
+  try {
+    sourceOrigin = new URL(event.source?.url).origin;
+  } catch {
+    return;
+  }
+  if (
+    event.origin === self.location.origin
+    && sourceOrigin === self.location.origin
+    && event.data?.type === "SKIP_WAITING"
+  ) {
+    event.waitUntil(self.skipWaiting());
+  }
 });
 
 self.addEventListener("activate", (event) => {
@@ -64,6 +87,9 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(request)
         .then(async (response) => {
+          if (isServerError(response)) {
+            return cachedOrError("./");
+          }
           if (response.ok) {
             const cache = await caches.open(CACHE_NAME);
             await cache.put("./", response.clone());
@@ -78,6 +104,9 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     fetch(request)
       .then(async (response) => {
+        if (isServerError(response)) {
+          return cachedOrError(request);
+        }
         if (response.ok && response.type === "basic") {
           const cache = await caches.open(CACHE_NAME);
           await cache.put(request, response.clone());

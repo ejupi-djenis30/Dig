@@ -15,7 +15,7 @@ Install Node.js 20 or newer:
 ```bash
 npm ci --ignore-scripts
 npm run check
-npx --no-install playwright install chromium
+npx --no-install playwright install chromium webkit
 npm run test:e2e
 npm audit --audit-level=moderate
 ```

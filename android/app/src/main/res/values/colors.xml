@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="colorPrimary">#101313</color>
+    <color name="colorPrimaryDark">#0d1110</color>
+    <color name="colorAccent">#d8ff3e</color>
+    <color name="digSplash">#d8ff3e</color>
+</resources>

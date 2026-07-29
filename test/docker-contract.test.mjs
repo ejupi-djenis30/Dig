@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import YAML from "yaml";
@@ -10,10 +11,13 @@ test("container runs unprivileged and starts only the authenticated hosted gatew
   assert.match(dockerfile, /^FROM node:22\.23\.1-alpine$/mu);
   assert.match(dockerfile, /^USER node$/mu);
   assert.match(dockerfile, /^HEALTHCHECK /mu);
+  assert.match(dockerfile, /process\.env\.DIG_PORT/u);
+  assert.doesNotMatch(dockerfile, /127\.0\.0\.1:4175\/healthz/u);
   assert.match(
     dockerfile,
-    /^CMD \["node", "bin\/dig\.mjs", "serve", "--host", "0\.0\.0\.0", "--port", "4175", "--hosted"\]$/mu,
+    /^COPY --chown=node:node scripts\/serve-app\.mjs \.\/scripts\/serve-app\.mjs$/mu,
   );
+  assert.match(dockerfile, /^CMD \["node", "scripts\/serve-app\.mjs"\]$/mu);
   assert.doesNotMatch(dockerfile, /^COPY \. /mu);
 });
 
@@ -64,4 +68,18 @@ test("Docker build context excludes secrets and development state", async () => 
       `.dockerignore must include ${entry}`,
     );
   }
+});
+
+test("container environment limits fail before the server starts", () => {
+  const result = spawnSync(process.execPath, ["scripts/serve-app.mjs"], {
+    cwd: root,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      DIG_TIMEOUT_MS: "60001",
+    },
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /DIG_TIMEOUT_MS is outside its supported range/u);
 });

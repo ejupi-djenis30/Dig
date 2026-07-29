@@ -3,11 +3,32 @@
   "short_name": "DIG",
   "description": "Browse Gopher through a bounded local gateway, inspect protocol fields, and export exact response metadata.",
   "id": "./",
-  "start_url": "./",
+  "start_url": "./#explorer",
   "scope": "./",
+  "lang": "en",
+  "dir": "ltr",
   "display": "standalone",
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
+  "orientation": "any",
   "background_color": "#eef0e8",
   "theme_color": "#101313",
+  "categories": [
+    "utilities",
+    "productivity"
+  ],
+  "screenshots": [
+    {
+      "src": "assets/screenshot-mobile.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "DIG Explorer in offline-safe fixture mode"
+    }
+  ],
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "assets/dig-mark-192.png",
@@ -26,6 +47,28 @@
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"
+    },
+    {
+      "src": "assets/dig-mark-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Open the explorer",
+      "short_name": "Explorer",
+      "description": "Jump straight to the interactive Gopher explorer.",
+      "url": "./#explorer",
+      "icons": [
+        {
+          "src": "assets/dig-mark-192.png",
+          "sizes": "192x192",
+          "type": "image/png",
+          "purpose": "any"
+        }
+      ]
     }
   ]
 }
