@@ -10,6 +10,7 @@ const outputRoot = resolve(repositoryRoot, "dist", "android");
 const entryPoint = resolve(repositoryRoot, "mobile", "entry.mjs");
 const repositorySourceUrl = "https://github.com/ejupi-djenis30/Dig";
 const exclusionNames = ["source", "cli-link", "app-meta", "footer-links"];
+const pagesOnlyMetadata = [".well-known", "robots.txt", "sitemap.xml"];
 
 function assertConfined(path) {
   const pathFromRoot = relative(repositoryRoot, path);
@@ -58,6 +59,11 @@ export async function buildAndroidWeb() {
   await rm(outputRoot, { recursive: true, force: true });
   await mkdir(dirname(outputRoot), { recursive: true });
   await cp(siteRoot, outputRoot, { recursive: true });
+  for (const relativePath of pagesOnlyMetadata) {
+    const metadataPath = resolve(outputRoot, relativePath);
+    assertConfined(metadataPath);
+    await rm(metadataPath, { recursive: true, force: true });
+  }
 
   const indexPath = resolve(outputRoot, "index.html");
   const sourceIndex = await readFile(indexPath, "utf8");

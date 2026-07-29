@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /Dig/
+Sitemap: https://ejupi-djenis30.github.io/Dig/sitemap.xml
