@@ -1,6 +1,6 @@
 {
   "name": "dig-gopher-explorer",
-  "version": "3.0.0",
+  "version": "3.2.0",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -14,12 +14,18 @@
     "site",
     "CHANGELOG.md",
     "LICENSE",
+    "PRIVACY.md",
     "SECURITY.md"
   ],
   "scripts": {
     "start": "node ./bin/dig.mjs serve",
     "dev": "node ./scripts/serve-test-app.mjs",
     "fixture": "node ./scripts/gopher-fixture.mjs",
+    "build:android:web": "node ./scripts/build-android-web.mjs",
+    "android:sync": "npm run build:android:web && cap sync android",
+    "android:assets": "node ./scripts/generate-android-assets.mjs",
+    "android:signing:init": "node ./scripts/create-android-signing.mjs",
+    "android:apk": "node ./scripts/build-android-apk.mjs",
     "test": "node --test",
     "test:e2e": "playwright test",
     "check:site": "node ./scripts/validate-site.mjs",
@@ -27,10 +33,14 @@
     "check": "npm test && npm run check:site && npm run check:release"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "devDependencies": {
+    "@capacitor/android": "8.4.2",
+    "@capacitor/cli": "8.4.2",
+    "@capacitor/core": "8.4.2",
     "@playwright/test": "1.62.0",
+    "esbuild": "0.28.1",
     "remark-parse": "11.0.0",
     "unified": "11.0.5",
     "yaml": "2.9.0"

@@ -1,4 +1,4 @@
-import { defineConfig } from "@playwright/test";
+import { defineConfig, devices } from "@playwright/test";
 
 const isCI = Boolean(process.env.CI);
 
@@ -10,9 +10,9 @@ export default defineConfig({
   retries: 0,
   workers: 1,
   reporter: isCI ? "line" : "list",
-  timeout: 15_000,
+  timeout: 30_000,
   expect: {
-    timeout: 5_000,
+    timeout: 10_000,
   },
   outputDir: "test-results/playwright",
   use: {
@@ -30,6 +30,13 @@ export default defineConfig({
     {
       name: "chromium",
       use: { browserName: "chromium" },
+    },
+    {
+      name: "webkit-mobile",
+      use: {
+        ...devices["iPhone 13"],
+        browserName: "webkit",
+      },
     },
   ],
   webServer: {

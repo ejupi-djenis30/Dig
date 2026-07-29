@@ -3,13 +3,16 @@ import {
   parseGopherUrl,
   parseMenu,
   toGopherUrl,
-} from "./protocol.mjs?v=3.0.0";
+} from "./protocol.mjs?v=3.2.0";
 
 const BOOKMARK_KEY = "dig.bookmarks.v1";
 const HISTORY_KEY = "dig.history.v1";
 const TOKEN_KEY = "dig.access-token.v1";
+const LIVE_TRANSPORT_KEY = "dig.live-transport.v1";
+const LIVE_TRANSPORT_RETRY_MS = 3_000;
 const MAX_BOOKMARKS = 50;
 const MAX_HISTORY = 100;
+const nativeTransport = globalThis.__DIG_NATIVE_TRANSPORT__ ?? null;
 
 function storage(name) {
   try {
@@ -37,6 +40,12 @@ const elements = {
   go: document.querySelector("[data-go]"),
   mode: document.querySelector("[data-mode]"),
   status: document.querySelector("[data-fixture-status]"),
+  connectivity: document.querySelector("[data-connectivity]"),
+  install: document.querySelector("[data-install]"),
+  appNotice: document.querySelector("[data-app-notice]"),
+  appNoticeMessage: document.querySelector("[data-app-notice-message]"),
+  appNoticeAction: document.querySelector("[data-app-notice-action]"),
+  appNoticeDismiss: document.querySelector("[data-app-notice-dismiss]"),
   securityBanner: document.querySelector("[data-security-banner]"),
   accessForm: document.querySelector("[data-access-form]"),
   accessToken: document.querySelector("[data-access-token]"),
@@ -45,6 +54,10 @@ const elements = {
   searchTarget: document.querySelector("[data-search-target]"),
   searchCancel: document.querySelector("[data-search-cancel]"),
   resource: document.querySelector("[data-resource]"),
+  panelContainer: document.querySelector("[data-panel-container]"),
+  resourceTab: document.querySelector("[data-resource-tab]"),
+  traceTab: document.querySelector("[data-trace-tab]"),
+  tracePanel: document.querySelector("[data-trace-panel]"),
   resourceHeading: document.querySelector("[data-resource-heading]"),
   count: document.querySelector("[data-count]"),
   back: document.querySelector("[data-back]"),
@@ -52,6 +65,7 @@ const elements = {
   home: document.querySelector("[data-home]"),
   bookmark: document.querySelector("[data-bookmark]"),
   rawToggle: document.querySelector("[data-raw-toggle]"),
+  share: document.querySelector("[data-share]"),
   export: document.querySelector("[data-export]"),
   clearHistory: document.querySelector("[data-clear-history]"),
   clearBookmarks: document.querySelector("[data-clear-bookmarks]"),
@@ -76,6 +90,14 @@ let currentResource = null;
 let pendingSearchAddress = null;
 let includeRaw = false;
 let navigationController = null;
+let appBusy = true;
+let reconnectRequested = false;
+let deferredInstallPrompt = null;
+let noticeAction = null;
+let updateActivationRequested = false;
+let reloadingForUpdate = false;
+let shouldProbeLiveTransport =
+  readString(LIVE_TRANSPORT_KEY, sessionStore) === "1";
 let accessToken = readString(TOKEN_KEY, sessionStore);
 let history = readLocations(HISTORY_KEY, sessionStore, MAX_HISTORY, true);
 let historyIndex = history.length - 1;
@@ -146,8 +168,78 @@ function setStatus(message, tone = "neutral") {
 }
 
 function setBusy(busy) {
+  appBusy = busy;
   elements.app.setAttribute("aria-busy", String(busy));
-  elements.go.disabled = busy || config?.transport === "fixture";
+  elements.app.dataset.state = busy ? "loading" : config?.transport ?? "ready";
+  updateNavigationControls();
+}
+
+function hideAppNotice() {
+  noticeAction = null;
+  elements.appNotice.hidden = true;
+  elements.appNoticeMessage.textContent = "";
+  elements.appNoticeAction.hidden = true;
+  elements.appNoticeAction.textContent = "";
+}
+
+function showAppNotice(message, options = {}) {
+  elements.appNoticeMessage.textContent = message;
+  noticeAction = typeof options.onAction === "function" ? options.onAction : null;
+  elements.appNoticeAction.hidden = !noticeAction;
+  elements.appNoticeAction.textContent = noticeAction
+    ? options.actionLabel ?? "Continue"
+    : "";
+  elements.appNotice.hidden = false;
+}
+
+function setMobilePanel(panel, options = {}) {
+  const nextPanel = panel === "trace" ? "trace" : "resource";
+  elements.panelContainer.dataset.mobilePanel = nextPanel;
+  elements.resourceTab.setAttribute(
+    "aria-pressed",
+    String(nextPanel === "resource"),
+  );
+  elements.traceTab.setAttribute(
+    "aria-pressed",
+    String(nextPanel === "trace"),
+  );
+  if (options.focus === true) {
+    const target = nextPanel === "trace"
+      ? elements.tracePanel
+      : elements.resourceHeading;
+    target.focus({ preventScroll: false });
+  }
+}
+
+function isStandalone() {
+  return (
+    window.matchMedia("(display-mode: standalone)").matches ||
+    window.navigator.standalone === true
+  );
+}
+
+function isIosDevice() {
+  return (
+    /iphone|ipad|ipod/iu.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+  );
+}
+
+function updateInstallAvailability() {
+  elements.install.hidden =
+    Boolean(nativeTransport) ||
+    isStandalone() ||
+    (!deferredInstallPrompt && !isIosDevice());
+}
+
+function canRequestResources() {
+  return ["live", "native"].includes(config?.transport);
+}
+
+function updateConnectivity() {
+  const offline = navigator.onLine === false;
+  elements.connectivity.hidden = !offline;
+  elements.connectivity.textContent = offline ? "Offline" : "Online";
 }
 
 function safeFilename(value, fallback = "dig-resource") {
@@ -169,16 +261,56 @@ function downloadBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
+async function shareCurrentResource() {
+  if (!currentResource) return;
+  const address = currentResource.address;
+  try {
+    if (typeof navigator.share === "function") {
+      await navigator.share({
+        title: "DIG Gopher resource",
+        text: address,
+      });
+      setStatus("Resource shared.", "success");
+      return;
+    }
+    if (typeof navigator.clipboard?.writeText !== "function") {
+      throw new Error("Sharing is not available in this browser.");
+    }
+    await navigator.clipboard.writeText(address);
+    setStatus("Gopher address copied to the clipboard.", "success");
+  } catch (error) {
+    if (error.name === "AbortError") return;
+    setStatus(error.message ?? "The resource could not be shared.", "error");
+  }
+}
+
 function historyEntry(address, label = address) {
   return { address, label: String(label).slice(0, 160) };
 }
 
 function updateNavigationControls() {
-  elements.back.disabled = config?.transport !== "live" || historyIndex <= 0;
+  const authenticated = !config?.requiresAccessToken || Boolean(accessToken);
+  const requestReady = canRequestResources() && authenticated;
+  const hasResource = currentResource !== null;
+
+  elements.address.disabled = config === null;
+  elements.go.disabled = appBusy || !requestReady;
+  elements.back.disabled = appBusy || !requestReady || historyIndex <= 0;
   elements.forward.disabled =
-    config?.transport !== "live" || historyIndex >= history.length - 1;
-  elements.bookmark.disabled = !currentResource;
-  elements.export.disabled = !currentResource;
+    appBusy || !requestReady || historyIndex >= history.length - 1;
+  elements.home.disabled = appBusy || !requestReady;
+  elements.bookmark.disabled = appBusy || !requestReady || !hasResource;
+  elements.rawToggle.disabled = appBusy || !requestReady || !hasResource;
+  elements.share.disabled = appBusy || !hasResource;
+  elements.export.disabled = appBusy || !hasResource;
+  elements.clearHistory.disabled = appBusy || history.length === 0;
+  elements.clearBookmarks.disabled = appBusy || bookmarks.length === 0;
+  elements.app
+    .querySelectorAll("[data-location-button]")
+    .forEach((button) => {
+      button.disabled = appBusy || !requestReady;
+    });
+
   const isSaved = bookmarks.some(
     ({ address }) => address === currentResource?.address,
   );
@@ -201,13 +333,17 @@ function renderLocationList(container, values, ordered = false) {
     const item = document.createElement("li");
     const button = document.createElement("button");
     button.type = "button";
+    button.dataset.locationButton = "";
     button.textContent = entry.label || entry.address;
     const address = document.createElement("code");
     address.textContent = entry.address;
     button.append(address);
     button.addEventListener("click", () => {
-      if (ordered) historyIndex = index;
-      void navigate(entry.address, { push: !ordered });
+      if (!canRequestResources() || appBusy) return;
+      void navigate(
+        entry.address,
+        ordered ? { push: false, historyIndex: index } : { push: true },
+      );
     });
     item.append(button);
     fragment.append(item);
@@ -294,6 +430,47 @@ function setTrace(model) {
     `port ${elements.trace.port.textContent}.`;
 }
 
+function clearTrace(message = "No resource selected") {
+  elements.trace.type.textContent = "—";
+  elements.trace.typeName.textContent = "—";
+  elements.trace.label.textContent = message;
+  elements.trace.selector.textContent = "—";
+  elements.trace.host.textContent = "—";
+  elements.trace.port.textContent = "—";
+  elements.trace.bytes.textContent = "—";
+  elements.trace.sha.textContent = "—";
+  elements.trace.raw.textContent = "Raw bytes are opt-in.";
+  elements.traceAnnouncement.textContent = message;
+}
+
+function renderErrorState(error, retry, options = {}) {
+  currentResource = null;
+  pendingSearchAddress = null;
+  elements.searchForm.hidden = true;
+  elements.resourceHeading.textContent = options.heading ?? "REQUEST FAILED";
+  elements.count.textContent = error.code ?? options.count ?? "Error";
+
+  const container = document.createElement("div");
+  container.className = "error-resource";
+  const message = document.createElement("p");
+  message.textContent = error.message ?? "DIG could not load this resource.";
+  container.append(message);
+  if (typeof retry === "function") {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "Retry";
+    button.addEventListener("click", retry);
+    container.append(button);
+  }
+  elements.resource.replaceChildren(container);
+  clearTrace("No current resource");
+  setMobilePanel("resource");
+  renderLibraries();
+  if (options.focus !== false) {
+    elements.resourceHeading.focus({ preventScroll: false });
+  }
+}
+
 function menuButton(entry) {
   const button = document.createElement("button");
   button.type = "button";
@@ -313,7 +490,7 @@ function menuButton(entry) {
   const action = document.createElement("i");
   action.setAttribute("aria-hidden", "true");
   action.textContent =
-    config.transport === "fixture"
+    config?.transport === "fixture"
       ? "inspect"
       : entry.requiresQuery
         ? "query"
@@ -327,7 +504,10 @@ function menuButton(entry) {
       .forEach((item) => item.removeAttribute("aria-current"));
     button.setAttribute("aria-current", "true");
     setTrace(entry);
-    if (config.transport !== "live") return;
+    if (!canRequestResources()) {
+      setMobilePanel("trace", { focus: true });
+      return;
+    }
     if (entry.requiresQuery && entry.url) {
       pendingSearchAddress = entry.url;
       elements.searchTarget.textContent = `Query ${entry.label} at ${entry.host}:${entry.port}.`;
@@ -335,12 +515,25 @@ function menuButton(entry) {
       elements.searchQuery.focus();
     } else if (entry.requestable && entry.url) {
       void navigate(entry.url);
+    } else {
+      setMobilePanel("trace", { focus: true });
     }
   });
   return button;
 }
 
 function renderMenu(resource) {
+  elements.resourceHeading.textContent = "GOPHER MENU";
+  elements.count.textContent = `${resource.entries.length} items`;
+  if (resource.entries.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "resource-empty-state";
+    empty.textContent = "This Gopher menu is empty.";
+    elements.resource.replaceChildren(empty);
+    clearTrace("Empty Gopher menu");
+    return;
+  }
+
   const fragment = document.createDocumentFragment();
   resource.entries.forEach((entry) => {
     const row = document.createElement("div");
@@ -358,22 +551,25 @@ function renderMenu(resource) {
     fragment.append(row);
   });
   elements.resource.replaceChildren(fragment);
-  elements.resourceHeading.textContent = "GOPHER MENU";
-  elements.count.textContent = `${resource.entries.length} items`;
   const first = elements.resource.querySelector(".menu-item");
-  if (resource.entries[0] && first) {
-    first.setAttribute("aria-current", "true");
-    setTrace(resource.entries[0]);
-  }
+  first.setAttribute("aria-current", "true");
+  setTrace(resource.entries[0]);
 }
 
 function renderText(resource) {
+  elements.resourceHeading.textContent = "TEXT RESPONSE";
+  elements.count.textContent = `${resource.byteLength} bytes`;
+  if (resource.text.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "resource-empty-state";
+    empty.textContent = "This text response is empty.";
+    elements.resource.replaceChildren(empty);
+    return;
+  }
   const text = document.createElement("pre");
   text.className = "text-resource";
   text.textContent = resource.text;
   elements.resource.replaceChildren(text);
-  elements.resourceHeading.textContent = "TEXT RESPONSE";
-  elements.count.textContent = `${resource.byteLength} bytes`;
 }
 
 function renderBinary(resource) {
@@ -386,7 +582,27 @@ function renderBinary(resource) {
   const button = document.createElement("button");
   button.type = "button";
   button.textContent = "Save exact bytes";
-  button.addEventListener("click", () => {
+  button.addEventListener("click", async () => {
+    if (nativeTransport?.saveFile) {
+      button.disabled = true;
+      try {
+        const result = await nativeTransport.saveFile({
+          data: resource.data,
+          mediaType: resource.mediaType,
+          suggestedFilename: safeFilename(resource.suggestedFilename),
+        });
+        setStatus(
+          result.saved ? "The file was saved." : "File save cancelled.",
+          result.saved ? "success" : "neutral",
+        );
+      } catch (error) {
+        setStatus(error.message ?? "DIG could not save the file.", "error");
+      } finally {
+        button.disabled = false;
+      }
+      return;
+    }
+
     const bytes = Uint8Array.from(atob(resource.data), (character) =>
       character.charCodeAt(0),
     );
@@ -422,6 +638,7 @@ function renderExternal(resource) {
 function renderResource(resource) {
   currentResource = resource;
   elements.address.value = resource.address;
+  setMobilePanel("resource");
   if (resource.kind === "menu") renderMenu(resource);
   if (resource.kind === "text") renderText(resource);
   if (resource.kind === "binary") renderBinary(resource);
@@ -431,6 +648,15 @@ function renderResource(resource) {
 }
 
 async function fetchResource(address, query, signal) {
+  if (config?.transport === "native" && nativeTransport) {
+    return nativeTransport.fetchResource({
+      address,
+      includeRaw,
+      query,
+      signal,
+    });
+  }
+
   const headers = { "content-type": "application/json" };
   if (accessToken) headers.authorization = `Bearer ${accessToken}`;
   const response = await fetch("api/fetch", {
@@ -456,11 +682,18 @@ async function fetchResource(address, query, signal) {
 }
 
 async function navigate(address, options = {}) {
-  if (config.transport !== "live") return;
+  if (!canRequestResources()) {
+    setStatus(
+      "Fixture mode is read-only. Start a same-origin DIG gateway for live requests.",
+      "neutral",
+    );
+    return false;
+  }
   navigationController?.abort();
   const controller = new AbortController();
   navigationController = controller;
   setBusy(true);
+  setStatus("Opening the Gopher resource…", "neutral");
   elements.searchForm.hidden = true;
   try {
     parseGopherUrl(address);
@@ -473,25 +706,39 @@ async function navigate(address, options = {}) {
     if (options.push !== false) {
       pushHistory(resource.address, resource.address);
     } else {
+      if (Number.isInteger(options.historyIndex)) {
+        historyIndex = options.historyIndex;
+      }
       renderLibraries();
+    }
+    if (options.focus !== false) {
+      elements.resourceHeading.focus({ preventScroll: false });
     }
     setStatus(
       `Fetched ${resource.byteLength} bytes in ${resource.durationMs} ms. SHA-256 ${resource.sha256 ?? "not applicable"}.`,
       "success",
     );
+    return true;
   } catch (error) {
-    if (error.name === "AbortError") return;
-    if (error.code === "AUTH_REQUIRED") {
+    if (error.name === "AbortError") return false;
+    const authenticationRequired = error.code === "AUTH_REQUIRED";
+    if (authenticationRequired) {
+      accessToken = "";
+      try {
+        sessionStore.setItem(TOKEN_KEY, "");
+      } catch {
+        // The in-memory token has still been cleared.
+      }
       elements.accessForm.hidden = false;
-      elements.accessToken.focus();
     }
-    elements.resourceHeading.textContent = "REQUEST FAILED";
-    elements.count.textContent = error.code ?? "Error";
-    const message = document.createElement("p");
-    message.className = "error-resource";
-    message.textContent = error.message;
-    elements.resource.replaceChildren(message);
+    renderErrorState(
+      error,
+      () => void navigate(address, options),
+      { focus: options.focus !== false && !authenticationRequired },
+    );
+    if (authenticationRequired) elements.accessToken.focus();
     setStatus(error.message, "error");
+    return false;
   } finally {
     if (navigationController === controller) {
       navigationController = null;
@@ -501,7 +748,7 @@ async function navigate(address, options = {}) {
 }
 
 async function loadFixture() {
-  const response = await fetch("fixtures/root.txt?v=3.0.0");
+  const response = await fetch("fixtures/root.txt?v=3.2.0");
   if (!response.ok) {
     throw new Error(`Fixture request returned HTTP ${response.status}.`);
   }
@@ -520,12 +767,35 @@ async function loadFixture() {
   });
 }
 
-async function configure() {
+async function configure({ preserveFixtureOnFailure = false } = {}) {
+  const preserveExistingFixture =
+    preserveFixtureOnFailure &&
+    config?.transport === "fixture" &&
+    currentResource !== null;
+
+  setBusy(true);
+  setStatus("Detecting the available transport…", "neutral");
   try {
-    const response = await fetch("api/config", { cache: "no-store" });
-    if (!response.ok) throw new Error("The local gateway is not available.");
-    config = { ...(await response.json()), transport: "live" };
-    elements.mode.textContent = `${config.mode} / live TCP`;
+    let detectedConfig;
+    if (nativeTransport) {
+      detectedConfig = await nativeTransport.getConfig();
+    } else {
+      const response = await fetch("api/config", { cache: "no-store" });
+      if (!response.ok) throw new Error("The local gateway is not available.");
+      detectedConfig = await response.json();
+    }
+    config = {
+      ...detectedConfig,
+      transport: nativeTransport ? "native" : "live",
+    };
+    shouldProbeLiveTransport = !nativeTransport;
+    if (shouldProbeLiveTransport) {
+      sessionStore.setItem(LIVE_TRANSPORT_KEY, "1");
+    }
+    elements.mode.textContent = nativeTransport
+      ? `${config.mode} / direct TCP`
+      : `${config.mode} / live TCP`;
+    elements.address.disabled = false;
     elements.address.readOnly = false;
     elements.address.removeAttribute("aria-readonly");
     elements.securityBanner.hidden = !config.privateDestinationWarning;
@@ -533,24 +803,144 @@ async function configure() {
       config.privateDestinationWarning ?? "";
     if (config.requiresAccessToken && !accessToken) {
       elements.accessForm.hidden = false;
+      renderErrorState(
+        new Error("Enter the hosted access token to start."),
+        null,
+        { heading: "ACCESS REQUIRED", count: "Locked", focus: false },
+      );
       setStatus("Enter the hosted access token to start.", "neutral");
-      setBusy(false);
     } else {
-      await navigate(config.homeAddress);
+      elements.accessForm.hidden = true;
+      await navigate(config.homeAddress, { focus: false });
     }
   } catch {
     config = { transport: "fixture", mode: "fixture" };
     elements.mode.textContent = "fixture / offline-safe";
+    elements.address.disabled = false;
     elements.address.readOnly = true;
     elements.address.setAttribute("aria-readonly", "true");
-    await loadFixture();
-    setStatus(
-      "Fixture mode: no remote Gopher request is made. Run the local gateway for live TCP.",
-      "neutral",
-    );
+    elements.securityBanner.hidden = true;
+    elements.accessForm.hidden = true;
+
+    if (preserveExistingFixture) {
+      setStatus(
+        "Connection restored, but the live gateway is unavailable. Offline fixture remains active.",
+        "neutral",
+      );
+      return;
+    }
+
+    try {
+      await loadFixture();
+      setStatus(
+        "Fixture mode: no remote Gopher request is made. Use a same-origin gateway for live TCP.",
+        "neutral",
+      );
+    } catch (error) {
+      renderErrorState(
+        error,
+        () => void configure(),
+        { heading: "APP UNAVAILABLE", count: "Offline", focus: false },
+      );
+      setStatus("DIG could not load its offline fixture.", "error");
+    }
+  } finally {
     setBusy(false);
+    renderLibraries();
+    if (
+      reconnectRequested &&
+      config?.transport === "fixture"
+    ) {
+      reconnectRequested = false;
+      queueMicrotask(() => void reconnectWhenOnline());
+    }
   }
-  renderLibraries();
+}
+
+async function reconnectWhenOnline() {
+  updateConnectivity();
+  if (config?.transport !== "fixture") return;
+  if (appBusy) {
+    reconnectRequested = true;
+    return;
+  }
+  reconnectRequested = false;
+  await configure({ preserveFixtureOnFailure: true });
+}
+
+async function promptForInstall() {
+  if (deferredInstallPrompt) {
+    const promptEvent = deferredInstallPrompt;
+    deferredInstallPrompt = null;
+    try {
+      await promptEvent.prompt();
+      const choice = await promptEvent.userChoice;
+      if (choice?.outcome === "accepted") {
+        setStatus("DIG installation accepted.", "success");
+      }
+    } catch (error) {
+      setStatus(error.message ?? "DIG could not start installation.", "error");
+    } finally {
+      updateInstallAvailability();
+    }
+    return;
+  }
+  if (isIosDevice() && !isStandalone()) {
+    showAppNotice(
+      "To install DIG on iPhone or iPad, open the Share menu and choose Add to Home Screen.",
+    );
+  }
+}
+
+function offerServiceWorkerUpdate(worker) {
+  showAppNotice("A new version of DIG is ready.", {
+    actionLabel: "Update now",
+    onAction: () => {
+      noticeAction = null;
+      elements.appNoticeAction.hidden = true;
+      elements.appNoticeMessage.textContent = "Updating DIG…";
+      updateActivationRequested = true;
+      worker.postMessage({ type: "SKIP_WAITING" });
+    },
+  });
+}
+
+async function registerServiceWorker() {
+  if (nativeTransport || !("serviceWorker" in navigator)) return null;
+  try {
+    const registration = await navigator.serviceWorker.register(
+      "./sw.js?v=3.2.0",
+      { scope: "./", updateViaCache: "none" },
+    );
+    if (registration.waiting && navigator.serviceWorker.controller) {
+      offerServiceWorkerUpdate(registration.waiting);
+    }
+    registration.addEventListener("updatefound", () => {
+      const worker = registration.installing;
+      if (!worker) return;
+      worker.addEventListener("statechange", () => {
+        if (
+          worker.state === "installed" &&
+          navigator.serviceWorker.controller
+        ) {
+          offerServiceWorkerUpdate(worker);
+        }
+      });
+    });
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (!updateActivationRequested || reloadingForUpdate) return;
+      reloadingForUpdate = true;
+      window.location.reload();
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        void registration.update().catch(() => {});
+      }
+    });
+    return registration;
+  } catch {
+    return null;
+  }
 }
 
 elements.form.addEventListener("submit", (event) => {
@@ -559,23 +949,31 @@ elements.form.addEventListener("submit", (event) => {
 });
 
 elements.back.addEventListener("click", () => {
-  if (historyIndex <= 0) return;
-  historyIndex -= 1;
-  void navigate(history[historyIndex].address, { push: false });
+  if (historyIndex <= 0 || appBusy) return;
+  const nextIndex = historyIndex - 1;
+  void navigate(history[nextIndex].address, {
+    push: false,
+    historyIndex: nextIndex,
+  });
 });
 
 elements.forward.addEventListener("click", () => {
-  if (historyIndex >= history.length - 1) return;
-  historyIndex += 1;
-  void navigate(history[historyIndex].address, { push: false });
+  if (historyIndex >= history.length - 1 || appBusy) return;
+  const nextIndex = historyIndex + 1;
+  void navigate(history[nextIndex].address, {
+    push: false,
+    historyIndex: nextIndex,
+  });
 });
 
 elements.home.addEventListener("click", () => {
-  if (config.transport === "live") void navigate(config.homeAddress);
+  if (canRequestResources() && !appBusy) {
+    void navigate(config.homeAddress);
+  }
 });
 
 elements.bookmark.addEventListener("click", () => {
-  if (!currentResource) return;
+  if (!canRequestResources() || !currentResource || appBusy) return;
   const index = bookmarks.findIndex(
     ({ address }) => address === currentResource.address,
   );
@@ -592,12 +990,15 @@ elements.bookmark.addEventListener("click", () => {
 });
 
 elements.rawToggle.addEventListener("click", () => {
+  if (!canRequestResources() || !currentResource || appBusy) return;
   includeRaw = !includeRaw;
   elements.rawToggle.setAttribute("aria-pressed", String(includeRaw));
   elements.rawToggle.textContent = includeRaw ? "Raw on" : "Raw off";
-  if (config.transport === "live" && currentResource) {
-    void navigate(currentResource.address, { push: false });
-  }
+  void navigate(currentResource.address, { push: false });
+});
+
+elements.share.addEventListener("click", () => {
+  void shareCurrentResource();
 });
 
 elements.export.addEventListener("click", () => {
@@ -653,15 +1054,55 @@ elements.searchCancel.addEventListener("click", () => {
   elements.searchForm.hidden = true;
 });
 
-await configure();
+elements.resourceTab.addEventListener("click", () => {
+  setMobilePanel("resource", { focus: true });
+});
 
-if ("serviceWorker" in navigator) {
-  try {
-    await navigator.serviceWorker.register("./sw.js?v=3.0.0", {
-      scope: "./",
-      updateViaCache: "none",
-    });
-  } catch {
-    // Live fetching and the committed fixture do not depend on installation.
+elements.traceTab.addEventListener("click", () => {
+  setMobilePanel("trace", { focus: true });
+});
+
+elements.appNoticeAction.addEventListener("click", () => {
+  const action = noticeAction;
+  if (action) action();
+});
+
+elements.appNoticeDismiss.addEventListener("click", hideAppNotice);
+elements.install.addEventListener("click", () => {
+  void promptForInstall();
+});
+
+window.addEventListener("beforeinstallprompt", (event) => {
+  event.preventDefault();
+  deferredInstallPrompt = event;
+  updateInstallAvailability();
+});
+
+window.addEventListener("appinstalled", () => {
+  deferredInstallPrompt = null;
+  hideAppNotice();
+  updateInstallAvailability();
+  setStatus("DIG is installed and ready.", "success");
+});
+
+window.addEventListener("online", () => void reconnectWhenOnline());
+window.addEventListener("offline", updateConnectivity);
+window.setInterval(() => {
+  if (
+    shouldProbeLiveTransport &&
+    config?.transport === "fixture" &&
+    !appBusy &&
+    document.visibilityState === "visible"
+  ) {
+    void reconnectWhenOnline();
   }
-}
+}, LIVE_TRANSPORT_RETRY_MS);
+window.matchMedia("(display-mode: standalone)").addEventListener?.(
+  "change",
+  updateInstallAvailability,
+);
+
+updateConnectivity();
+updateInstallAvailability();
+void registerServiceWorker();
+await configure();

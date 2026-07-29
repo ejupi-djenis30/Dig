@@ -72,3 +72,48 @@ test("public project surfaces use collective attribution", async () => {
   assert.match(html, /Ejupi Labs and DIG contributors built both the prototype and the current implementation/u);
   assert.match(html, />DIG contributors <span aria-hidden="true">↗<\/span><\/a>/u);
 });
+
+test("mobile app metadata and controls are production-ready", async () => {
+  const [html, styles, manifestSource, privacy] = await Promise.all([
+    readFile(new URL("index.html", siteRoot), "utf8"),
+    readFile(new URL("styles.css", siteRoot), "utf8"),
+    readFile(new URL("manifest.webmanifest", siteRoot), "utf8"),
+    readFile(new URL("PRIVACY.md", repositoryRoot), "utf8"),
+  ]);
+  const manifest = JSON.parse(manifestSource);
+
+  assert.match(html, /viewport-fit=cover/u);
+  assert.match(html, /name="apple-mobile-web-app-capable" content="yes"/u);
+  assert.match(html, /rel="apple-touch-icon" sizes="180x180" href="assets\/dig-mark-180\.png"/u);
+  assert.match(html, /data-resource-tab/u);
+  assert.match(html, /data-trace-tab/u);
+  assert.match(html, /href="https:\/\/github\.com\/ejupi-djenis30\/Dig\/blob\/main\/PRIVACY\.md"/u);
+  assert.match(styles, /env\(safe-area-inset-top\)/u);
+  assert.match(styles, /@media \(display-mode: standalone\)/u);
+  assert.match(styles, /\.browser-bar input \{ font-size: 1rem; \}/u);
+  assert.equal(manifest.id, "./");
+  assert.equal(manifest.start_url, "./#explorer");
+  assert.equal(manifest.display, "standalone");
+  assert.equal(manifest.orientation, "any");
+  assert.ok(manifest.icons.some(({ purpose }) => purpose === "maskable"));
+  assert.ok(
+    manifest.screenshots.some(
+      ({ src, sizes, form_factor: formFactor }) =>
+        src === "assets/screenshot-mobile.png" &&
+        sizes === "390x844" &&
+        formFactor === "narrow",
+    ),
+  );
+  assert.match(privacy, /Gopher is a plaintext protocol/u);
+});
+
+test("interactive controls fail safe during application startup", async () => {
+  const html = await readFile(new URL("index.html", siteRoot), "utf8");
+
+  assert.match(html, /<input id="address"[^>]*disabled data-address/u);
+  assert.match(html, /<button type="submit" data-go disabled>Open<\/button>/u);
+  assert.match(html, /aria-label="Back" data-back disabled/u);
+  assert.match(html, /aria-label="Forward" data-forward disabled/u);
+  assert.match(html, /data-home disabled/u);
+  assert.match(html, /data-raw-toggle aria-pressed="false" disabled/u);
+});

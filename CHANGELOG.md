@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.2.0 — 2026-07-26
+
+- Add a standalone Android application with direct, bounded Gopher TCP transport and no remote web dependency.
+- Remove the Source link from the packaged Android assets while retaining it on the public website.
+- Add Android destination policy, cancellation, timeout, build and bundle regression coverage.
+
+## 3.1.0 — 2026-07-26
+
+- Make the explorer installable and usable as a mobile PWA with safe-area layouts, touch navigation, offline recovery, explicit updates and iOS assets.
+- Add mobile Chromium and WebKit coverage, a privacy disclosure and production checks for install metadata and screenshots.
+- Harden hosted origin validation, loopback matching, IPv6 documentation ranges and container runtime configuration.
+
 ## 3.0.0 — 2026-07-26
 
 - Add a real same-origin Gopher gateway with DNS pinning, fail-closed hosted SSRF policy and deterministic TCP integration tests.

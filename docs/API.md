@@ -24,7 +24,7 @@ Response:
     "idleTimeoutMs": 2000
   },
   "homeAddress": "gopher://gopher.floodgap.com/1/",
-  "version": "3.0.0"
+  "version": "3.2.0"
 }
 ```
 

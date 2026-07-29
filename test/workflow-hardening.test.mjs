@@ -31,6 +31,7 @@ test("CI pins Ubuntu and exact maintained Node.js patch releases", async () => {
   const ci = await workflow("ci.yml");
   assert.deepEqual(ci.permissions, { contents: "read" });
   assert.deepEqual(Object.keys(ci.jobs).sort(), [
+    "android",
     "browser-e2e",
     "container-smoke",
     "test",
@@ -38,8 +39,8 @@ test("CI pins Ubuntu and exact maintained Node.js patch releases", async () => {
   assert.equal(ci.jobs.test.name, "test (${{ matrix.node }})");
   assert.equal(ci.jobs.test["runs-on"], "ubuntu-24.04");
   assert.deepEqual(ci.jobs.test.strategy.matrix.include, [
-    { node: 20, "node-version": "20.20.2", "npm-version": "10.8.2" },
     { node: 22, "node-version": "22.23.1", "npm-version": "10.9.8" },
+    { node: 24, "node-version": "24.18.0", "npm-version": "11.16.0" },
   ]);
   const commands = ci.jobs.test.steps.flatMap((step) => typeof step.run === "string" ? [step.run] : []);
   assert.ok(commands.some((command) => command.includes('"v${EXPECTED_NODE_VERSION}"')));
@@ -49,14 +50,16 @@ test("CI pins Ubuntu and exact maintained Node.js patch releases", async () => {
   assert.ok(commands.every((command) => !command.includes("npm audit --omit=dev")));
 
   const browser = ci.jobs["browser-e2e"];
-  assert.equal(browser.name, "Chromium E2E");
+  assert.equal(browser.name, "Browser E2E (Chromium + WebKit)");
   assert.equal(browser["runs-on"], "ubuntu-24.04");
   assert.equal(browser["timeout-minutes"], 10);
   assert.ok(browser.steps.some((step) => step.with?.["node-version"] === "22.23.1"));
   assert.ok(browser.steps.some((step) => step.run === "npm ci --ignore-scripts"));
   assert.ok(
     browser.steps.some(
-      (step) => step.run === "npx --no-install playwright install --with-deps chromium",
+      (step) =>
+        step.run ===
+        "npx --no-install playwright install --with-deps chromium webkit",
     ),
   );
   assert.ok(browser.steps.some((step) => step.run === "npm run test:e2e"));
@@ -85,6 +88,42 @@ test("CI pins Ubuntu and exact maintained Node.js patch releases", async () => {
   assert.match(smoke, /--pids-limit 100/u);
   assert.match(smoke, /requiresAccessToken/u);
   assert.match(smoke, /"kind":"external"/u);
+
+  const android = ci.jobs.android;
+  assert.equal(android.name, "Android build");
+  assert.equal(android["runs-on"], "ubuntu-24.04");
+  assert.equal(android["timeout-minutes"], 15);
+  assert.ok(
+    android.steps.some(
+      (step) =>
+        step.uses === "actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95" &&
+        step.with?.distribution === "temurin" &&
+        step.with?.["java-version"] === "21",
+    ),
+  );
+  assert.ok(
+    android.steps.some(
+      (step) =>
+        step.uses ===
+        "android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699",
+    ),
+  );
+  assert.ok(
+    android.steps.some(
+      (step) =>
+        step.run === 'sdkmanager --install "platforms;android-36" "build-tools;36.0.0"',
+    ),
+  );
+  assert.ok(android.steps.some((step) => step.run === "npm run android:sync"));
+  const androidBuild = android.steps.find(
+    (step) => step.name === "Test, lint, and assemble the Android app",
+  )?.run;
+  assert.match(androidBuild, /:app:testDebugUnitTest/u);
+  assert.match(androidBuild, /:app:lintDebug/u);
+  assert.match(androidBuild, /:app:lintRelease/u);
+  assert.match(androidBuild, /:app:assembleDebug/u);
+  assert.match(androidBuild, /:app:assembleRelease/u);
+  assert.match(androidBuild, /:app:assembleDebugAndroidTest/u);
   for (const reference of collectUses(ci)) assert.match(reference, pinnedUse);
 });
 

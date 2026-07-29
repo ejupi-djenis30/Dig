@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { createServer } from "node:http";
+import { isIP } from "node:net";
 import { extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DestinationPolicyError } from "./network-policy.mjs";
@@ -157,19 +158,15 @@ function requestHostIsAllowed(request, configuredOrigin, loopbackBind) {
       return hostUrl.host === new URL(configuredOrigin).host;
     }
     if (!loopbackBind) return false;
-    const hostname = hostUrl.hostname
-      .toLowerCase()
-      .replace(/^\[|\]$/gu, "");
-    const loopbackHost =
-      hostname === "localhost" ||
-      hostname === "::1" ||
-      hostname.startsWith("127.");
     const requestedPort = hostUrl.port
       ? Number(hostUrl.port)
       : hostUrl.protocol === "https:"
         ? 443
         : 80;
-    return loopbackHost && requestedPort === request.socket.localPort;
+    return (
+      isLoopbackBind(hostUrl.hostname) &&
+      requestedPort === request.socket.localPort
+    );
   } catch {
     return false;
   }
@@ -208,11 +205,9 @@ function requestHasAccess(request, expectedDigest) {
 
 function isLoopbackBind(host) {
   const normalized = host.toLowerCase().replace(/^\[|\]$/gu, "");
-  return (
-    normalized === "localhost" ||
-    normalized === "::1" ||
-    normalized.startsWith("127.")
-  );
+  if (normalized === "localhost" || normalized === "::1") return true;
+  if (isIP(normalized) !== 4) return false;
+  return normalized.split(".", 1)[0] === "127";
 }
 
 function publicError(error) {
@@ -263,6 +258,21 @@ function publicError(error) {
   };
 }
 
+function staticCacheControl(request, relativePath) {
+  const requestUrl = new URL(request.url, REQUEST_URL_BASE);
+  if (requestUrl.searchParams.has("v")) {
+    return "public, max-age=31536000, immutable";
+  }
+  if (
+    relativePath === "index.html" ||
+    relativePath === "sw.js" ||
+    relativePath === "manifest.webmanifest"
+  ) {
+    return "no-cache";
+  }
+  return "public, max-age=3600";
+}
+
 async function serveStatic(request, response, pathname) {
   if (!pathname.startsWith(PAGE_PATH)) {
     sendText(response, 404, "Not found");
@@ -281,6 +291,7 @@ async function serveStatic(request, response, pathname) {
     response.writeHead(
       200,
       headers(CONTENT_TYPES.get(extname(filePath)) ?? "application/octet-stream", {
+        "Cache-Control": staticCacheControl(request, relativePath),
         "Content-Length": metadata.size,
       }),
     );
@@ -303,13 +314,25 @@ export async function createDigServer(options = {}) {
   const maxConcurrent = options.maxConcurrent ?? DEFAULT_MAX_CONCURRENT;
   const rateLimit = options.rateLimit ?? DEFAULT_RATE_LIMIT;
   const rateWindowMs = options.rateWindowMs ?? DEFAULT_RATE_WINDOW_MS;
-  const configuredOrigin = options.origin
-    ? new URL(options.origin).origin
+  const configuredOriginUrl = options.origin
+    ? new URL(options.origin)
     : null;
+  const configuredOrigin = configuredOriginUrl?.origin ?? null;
   const accessToken = options.accessToken;
   const loopbackBind = isLoopbackBind(host);
   if (mode !== "local" && mode !== "hosted") {
     throw new Error('mode must be "local" or "hosted".');
+  }
+  if (
+    mode === "hosted" &&
+    configuredOriginUrl &&
+    configuredOriginUrl.protocol !== "https:" &&
+    !(
+      configuredOriginUrl.protocol === "http:" &&
+      isLoopbackBind(configuredOriginUrl.hostname)
+    )
+  ) {
+    throw new Error("Hosted mode requires HTTPS for a non-loopback browser origin.");
   }
   if (mode === "hosted" && allowPrivate) {
     throw new Error("Hosted mode cannot enable private destinations.");

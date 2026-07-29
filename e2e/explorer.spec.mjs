@@ -4,7 +4,7 @@ const LOCAL_ORIGIN = "http://127.0.0.1:4175";
 const runtimeErrors = new WeakMap();
 const outboundRequests = new WeakMap();
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page, browserName }) => {
   const errors = [];
   const outbound = [];
   runtimeErrors.set(page, errors);
@@ -12,7 +12,14 @@ test.beforeEach(async ({ page }) => {
 
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => {
-    if (message.type() === "error") errors.push(message.text());
+    if (message.type() !== "error") return;
+    const text = message.text();
+    const webkitPlaywrightStyleNoise =
+      browserName === "webkit" &&
+      text.startsWith(
+        "Refused to apply a stylesheet because its hash, its nonce, or 'unsafe-inline'",
+      );
+    if (!webkitPlaywrightStyleNoise) errors.push(text);
   });
   await page.route("**/*", (route) => {
     const url = new URL(route.request().url());
@@ -131,6 +138,102 @@ test("raw inspection is opt-in and exposes verifiable response metadata", async 
   );
 });
 
+test("clears stale actions on failure and retries the same request", async ({ page }) => {
+  await openExplorer(page);
+  let failNextFetch = true;
+  await page.route("**/Dig/api/fetch", async (route) => {
+    if (!failNextFetch) {
+      await route.fallback();
+      return;
+    }
+    failNextFetch = false;
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: {
+          code: "CAPACITY_REACHED",
+          message: "Temporary test failure.",
+        },
+      }),
+    });
+  });
+
+  await page.locator("[data-address-form]").getByRole("button", { name: "Open" }).click();
+  await expect(page.locator("[data-resource-heading]")).toHaveText("REQUEST FAILED");
+  runtimeErrors.set(page, []);
+  await expect(page.locator("[data-resource] .error-resource")).toContainText(
+    "Temporary test failure.",
+  );
+  await expect(page.locator("[data-bookmark]")).toBeDisabled();
+  await expect(page.locator("[data-raw-toggle]")).toBeDisabled();
+  await expect(page.locator("[data-share]")).toBeDisabled();
+  await expect(page.locator("[data-export]")).toBeDisabled();
+  await expect(page.locator("[data-label]")).toHaveText("No current resource");
+  await expect(page.locator("[data-resource-heading]")).toBeFocused();
+
+  await page.getByRole("button", { name: "Retry" }).click();
+  await expect(page.locator("[data-resource] .menu-item")).toHaveCount(6);
+  await expect(page.locator("[data-resource-heading]")).toHaveText("GOPHER MENU");
+  await expect(page.locator("[data-export]")).toBeEnabled();
+});
+
+test("fixture mode exposes only controls with useful offline behavior", async ({ page }) => {
+  await page.route("**/Dig/api/config", (route) =>
+    route.fulfill({ status: 404, body: "not available" }),
+  );
+  await page.goto("./");
+
+  await expect(page.locator("[data-mode]")).toHaveText("fixture / offline-safe");
+  runtimeErrors.set(page, []);
+  await expect(page.locator("[data-resource] .menu-item")).toHaveCount(8);
+  await expect(page.locator("[data-home]")).toBeDisabled();
+  await expect(page.locator("[data-bookmark]")).toBeDisabled();
+  await expect(page.locator("[data-raw-toggle]")).toBeDisabled();
+  await expect(page.locator("[data-share]")).toBeEnabled();
+  await expect(page.locator("[data-export]")).toBeEnabled();
+  await expect(page.locator("[data-address]")).toHaveAttribute("readonly", "");
+  await expect(page.locator("[data-fixture-status]")).toContainText(
+    "no remote Gopher request",
+  );
+});
+
+test("reloads the installed app shell and fixture while offline", async ({
+  browser,
+  browserName,
+}) => {
+  test.skip(browserName !== "chromium", "Chromium exposes deterministic service-worker controls.");
+  const context = await browser.newContext({
+    serviceWorkers: "allow",
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+  });
+  const page = await context.newPage();
+  try {
+    await page.goto(`${LOCAL_ORIGIN}/Dig/`);
+    await page.evaluate(() => navigator.serviceWorker.ready);
+    await page.reload();
+    await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller));
+
+    await context.setOffline(true);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.locator("[data-mode]")).toHaveText(
+      "fixture / offline-safe",
+    );
+    await expect(page.locator("[data-resource] .menu-item")).toHaveCount(8);
+    await expect(page.locator("[data-fixture-status]")).toContainText(
+      "no remote Gopher request",
+    );
+
+    await context.setOffline(false);
+    await expect(page.locator("[data-mode]")).toHaveText("local / live TCP");
+    await expect(page.locator("[data-resource] .menu-item")).toHaveCount(6);
+  } finally {
+    await context.close();
+  }
+});
+
 test.describe("320px viewport", () => {
   test.use({
     viewport: { width: 320, height: 800 },
@@ -222,5 +325,30 @@ test.describe("320px viewport", () => {
       undersizedTargets,
       "Every visible control must be at least 44 × 44 CSS pixels.",
     ).toEqual([]);
+  });
+
+  test("switches an inspected menu item into a visible Trace panel", async ({ page }) => {
+    await openExplorer(page);
+    await page.locator("[data-resource] .menu-item").first().click();
+
+    await expect(page.locator("[data-panel-container]")).toHaveAttribute(
+      "data-mobile-panel",
+      "trace",
+    );
+    await expect(page.locator("[data-trace-panel]")).toBeVisible();
+    await expect(page.locator("[data-label]")).toHaveText(
+      "Deterministic fixture",
+    );
+    await expect(page.locator("[data-trace-tab]")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    await page.locator("[data-resource-tab]").click();
+    await expect(page.locator("[data-resource]")).toBeVisible();
+    await expect(page.locator("[data-resource-tab]")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
   });
 });

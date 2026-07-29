@@ -37,14 +37,15 @@ Hosted mode:
 - applies request, response, time, concurrency and rate bounds;
 - serves the UI and API from the same origin.
 
-A non-loopback listener refuses to start without an exact browser origin. Set `DIG_ORIGIN` or pass `--origin https://dig.example.com` behind a reverse proxy.
+A non-loopback listener refuses to start without an exact browser origin. Hosted deployments also reject non-loopback origins that are not HTTPS; plain HTTP is accepted only for an exact loopback origin used during local operation. Set `DIG_ORIGIN` or pass `--origin https://dig.example.com` behind a TLS reverse proxy.
 
 ## Docker Compose
 
 `compose.yaml` publishes the port on host loopback only, drops Linux capabilities, enables `no-new-privileges` and uses a read-only filesystem.
 
 ```bash
-export DIG_ACCESS_TOKEN="$(openssl rand -hex 32)"
+cp .env.example .env
+# Put the output of `openssl rand -hex 32` in DIG_ACCESS_TOKEN inside .env.
 docker compose up --build
 ```
 
@@ -79,7 +80,8 @@ The CLI exposes the same transport limits as flags. Hard ceilings remain enforce
 
 ## Reverse proxy checklist
 
-- Terminate TLS.
+- Terminate TLS and redirect plain HTTP before it reaches the app.
+- Emit `Strict-Transport-Security` from the public HTTPS origin after validating the deployment.
 - Preserve the original `Origin` header.
 - Do not enable CORS.
 - Add an outer request-rate and connection limit.

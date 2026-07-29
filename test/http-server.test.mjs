@@ -65,8 +65,19 @@ test("local API serves config and fetches a real fixture menu", async (context) 
   });
   context.after(() => app.close());
 
+  const pageResponse = await fetch(`${origin}/Dig/`);
+  assert.equal(pageResponse.status, 200);
+  assert.equal(pageResponse.headers.get("cache-control"), "no-cache");
+  const versionedAsset = await fetch(`${origin}/Dig/styles.css?v=3.2.0`);
+  assert.equal(versionedAsset.status, 200);
+  assert.equal(
+    versionedAsset.headers.get("cache-control"),
+    "public, max-age=31536000, immutable",
+  );
+
   const configResponse = await fetch(`${origin}/Dig/api/config`);
   assert.equal(configResponse.status, 200);
+  assert.equal(configResponse.headers.get("cache-control"), "no-store");
   assert.equal(configResponse.headers.get("access-control-allow-origin"), null);
   const config = await configResponse.json();
   assert.equal(config.allowPrivate, true);
@@ -162,9 +173,21 @@ test("hosted mode refuses to start without a strong access token", async () => {
 test("HTTP Host allowlist blocks DNS-rebinding and host-poisoning requests", async (context) => {
   const { app, origin } = await startHttpApp({ mode: "local" });
   context.after(() => app.close());
-  const response = await requestWithHost(origin, "attacker.example");
-  assert.equal(response.status, 421);
-  assert.equal(JSON.parse(response.body).error.code, "HOST_BLOCKED");
+  const port = new URL(origin).port;
+
+  for (const host of [
+    "attacker.example",
+    `127.attacker.test:${port}`,
+    `127.example:${port}`,
+    `127.0.0.1.attacker.test:${port}`,
+  ]) {
+    const response = await requestWithHost(origin, host);
+    assert.equal(response.status, 421, `${host} must not be treated as loopback`);
+    assert.equal(JSON.parse(response.body).error.code, "HOST_BLOCKED");
+  }
+
+  const loopback = await requestWithHost(origin, `127.0.0.1:${port}`);
+  assert.equal(loopback.status, 200);
 });
 
 test("client disconnect aborts the Gopher fetch and releases its concurrency slot", async (context) => {
@@ -256,6 +279,35 @@ test("non-loopback listeners require an exact browser origin", async () => {
     }),
     /requires an exact browser origin/u,
   );
+  await assert.rejects(
+    createDigServer({
+      host: "0.0.0.0",
+      port: 0,
+      mode: "hosted",
+      accessToken: TEST_ACCESS_TOKEN,
+      origin: "http://dig.example.com",
+    }),
+    /requires HTTPS/u,
+  );
+  await assert.rejects(
+    createDigServer({
+      host: "0.0.0.0",
+      port: 0,
+      mode: "hosted",
+      accessToken: TEST_ACCESS_TOKEN,
+      origin: "ftp://127.0.0.1",
+    }),
+    /requires HTTPS/u,
+  );
+
+  const loopbackOrigin = await createDigServer({
+    host: "0.0.0.0",
+    port: 0,
+    mode: "hosted",
+    accessToken: TEST_ACCESS_TOKEN,
+    origin: "http://127.0.0.1:4175",
+  });
+  await loopbackOrigin.close();
 });
 
 test("rate limiter caps unique client state before inserting new keys", () => {

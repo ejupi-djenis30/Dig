@@ -5,9 +5,9 @@
 
   [![CI](https://github.com/ejupi-djenis30/Dig/actions/workflows/ci.yml/badge.svg)](https://github.com/ejupi-djenis30/Dig/actions/workflows/ci.yml)
 
-  DIG is a bounded Gopher client with a command line, a local web inspector and a small same-origin gateway. It opens real `gopher://` resources without hiding selectors, item types, response bytes or limits.
+  DIG is a bounded Gopher client with a command line, a local web inspector, a small same-origin gateway and a standalone Android app. It opens real `gopher://` resources without hiding selectors, item types, response bytes or limits.
 
-  [Public fixture](https://ejupi-djenis30.github.io/Dig/) · [CLI](#command-line) · [Local explorer](#local-explorer) · [Self-hosting](docs/SELF_HOSTING.md) · [API](docs/API.md) · [Security](SECURITY.md)
+  [Public fixture](https://ejupi-djenis30.github.io/Dig/) · [CLI](#command-line) · [Local explorer](#local-explorer) · [Android](#install-on-mobile) · [Self-hosting](docs/SELF_HOSTING.md) · [API](docs/API.md) · [Security](SECURITY.md) · [Privacy](PRIVACY.md)
 </div>
 
 ## What DIG does
@@ -19,13 +19,14 @@
 - Preserves binary bytes and reports the response size and SHA-256 digest.
 - Saves exact CLI output through a same-directory temporary file, then exposes the complete target through an atomic name operation.
 - Provides menu navigation, search, session history, bookmarks, JSON export and opt-in raw inspection in the local UI.
-- Runs deterministic TCP, unit, integration and Chromium tests without contacting an external Gopher server.
+- Packages the Explorer as a normal Android APK with a native, direct TCP Gopher transport.
+- Runs deterministic TCP, unit, integration, Chromium and mobile WebKit tests without contacting an external Gopher server.
 
-The GitHub Pages site uses a committed fixture because browser JavaScript cannot open raw TCP sockets. Start the local gateway when you want the same interface backed by real Gopher requests.
+The GitHub Pages site uses a committed fixture because browser JavaScript cannot open raw TCP sockets. Start the local gateway when you want the browser interface backed by real Gopher requests, or use the Android APK for direct Gopher access without a gateway.
 
 ## Command line
 
-DIG needs Node.js 20 or newer and has no runtime dependencies.
+DIG needs a maintained Node.js release (22 or newer) and has no runtime dependencies.
 
 ```bash
 node bin/dig.mjs gopher://gopher.floodgap.com/1/
@@ -86,13 +87,21 @@ Then open `gopher://127.0.0.1:7070/1` in the address bar.
 
 See [self-hosting](docs/SELF_HOSTING.md) for Docker and authenticated hosted mode. The JSON contract is documented in [the API reference](docs/API.md).
 
+## Install on mobile
+
+The standalone Android application is a normal Capacitor 8 APK with package ID `com.ejupilabs.dig`. It contains the Explorer assets locally and opens Gopher resources through the bundled native TCP transport; it is not a remote website wrapper and does not require DIG's HTTP gateway. Android 7.0/API 24 or newer is supported, and the current build targets API 36.
+
+The public website still links to the source repository. Its Android exclusion block is removed while producing the packaged web assets, so that source link is physically absent from the APK rather than merely hidden with CSS. See [the Android build guide](docs/ANDROID.md) for prerequisites, tests, signing and APK verification.
+
+DIG can also be installed as a Progressive Web App from a supported mobile browser. On Android, use the browser's install action when it appears. On iPhone or iPad, open the Share menu and choose **Add to Home Screen**. This browser-installed edition keeps the verified offline fixture; live Gopher browsing requires DIG's authenticated same-origin gateway behind HTTPS because a browser cannot open raw TCP sockets.
+
 ## Security boundary
 
 Gopher is plaintext. DIG cannot authenticate a Gopher server or protect selectors and response data in transit.
 
 Hosted mode is not an anonymous proxy. It requires an access token, refuses private destinations, rejects a hostname if any DNS answer is non-public, and connects to the IP it already validated. Local private access requires an explicit flag and visible warning. The gateway accepts fetches only from its own browser origin and never emits CORS headers.
 
-Read [SECURITY.md](SECURITY.md) before exposing the gateway beyond loopback.
+The Android transport always refuses private, loopback, link-local, reserved, documentation and mixed public/private DNS results. There is no Android private-network override. Read [SECURITY.md](SECURITY.md) before installing an APK or exposing the gateway beyond loopback.
 
 ## Protocol coverage
 
@@ -105,12 +114,22 @@ The exact behavior and deliberate limits are in [docs/PROTOCOL.md](docs/PROTOCOL
 ```bash
 npm ci --ignore-scripts
 npm run check
-npx --no-install playwright install chromium
+npx --no-install playwright install chromium webkit
 npm run test:e2e
 npm audit --audit-level=moderate
 ```
 
 `npm run check` covers the protocol, transport, network policy, HTTP API, CLI output, static site and release contracts. The E2E suite starts a real TCP fixture behind the local gateway and blocks browser requests outside its own origin.
+
+Android development additionally requires JDK 21 and Android SDK Platform 36:
+
+```bash
+npm run android:sync
+cd android
+./gradlew testDebugUnitTest lintDebug assembleDebug
+```
+
+On Windows, run `.\gradlew.bat` in place of `./gradlew`. For a local release, set `JAVA_HOME` to JDK 21, run `npm run android:signing:init` once, back up the generated `.android-signing` directory securely, then run `npm run android:apk`. The signing material is gitignored and must never be committed. The complete local and CI procedure is in [docs/ANDROID.md](docs/ANDROID.md).
 
 ```text
 bin/dig.mjs             executable entry point
@@ -121,6 +140,8 @@ src/http-server.mjs     same-origin local/hosted gateway
 src/cli.mjs             fetch and serve commands
 site/protocol.mjs       shared URL, menu and text parser
 site/                    fixture fallback and live inspector
+mobile/                  Android web entry and native bridge
+android/                 Capacitor application and native Gopher transport
 scripts/gopher-fixture.mjs
 test/ and e2e/           unit, integration and browser tests
 ```

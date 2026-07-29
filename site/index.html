@@ -2,8 +2,13 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="referrer" content="no-referrer" />
+    <meta name="color-scheme" content="light" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="DIG" />
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"
@@ -26,9 +31,9 @@
     <meta name="twitter:image:alt" content="DIG protocol explorer showing a Gopher menu beside its decoded protocol trace." />
     <link rel="canonical" href="https://ejupi-djenis30.github.io/Dig/" />
     <link rel="icon" href="assets/dig-mark.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="assets/dig-mark-192.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="assets/dig-mark-180.png" />
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="stylesheet" href="styles.css?v=3.0.0" />
+    <link rel="stylesheet" href="styles.css?v=3.2.0" />
     <title>DIG — Gopher Protocol Explorer</title>
   </head>
   <body id="top">
@@ -43,8 +48,22 @@
         <a href="#protocol">Protocol</a>
         <a href="#history">History</a>
       </nav>
-      <a class="github-link" href="https://github.com/ejupi-djenis30/Dig">Source <span aria-hidden="true">↗</span></a>
+      <div class="header-actions">
+        <span class="connectivity" role="status" data-connectivity hidden>Offline</span>
+        <a class="mobile-explorer-link" href="#explorer">Explorer</a>
+        <!-- android-exclude:source:start -->
+        <a class="github-link" href="https://github.com/ejupi-djenis30/Dig">Source <span aria-hidden="true">↗</span></a>
+        <!-- android-exclude:source:end -->
+      </div>
     </header>
+
+    <aside class="app-notice" data-app-notice role="status" aria-live="polite" hidden>
+      <p data-app-notice-message></p>
+      <div>
+        <button type="button" data-app-notice-action hidden></button>
+        <button type="button" data-app-notice-dismiss>Dismiss</button>
+      </div>
+    </aside>
 
     <main id="main-content" tabindex="-1">
       <section class="hero">
@@ -57,7 +76,10 @@
           </p>
           <div class="hero-actions">
             <a class="primary-action" href="#explorer">Open the explorer <span aria-hidden="true">↓</span></a>
+            <button class="install-action" type="button" data-install hidden>Install DIG</button>
+            <!-- android-exclude:cli-link:start -->
             <a href="https://github.com/ejupi-djenis30/Dig#run-the-cli">Run the real client <span aria-hidden="true">↗</span></a>
+            <!-- android-exclude:cli-link:end -->
           </div>
         </div>
         <div class="packet-art" aria-hidden="true">
@@ -102,20 +124,21 @@
             <span class="status-dot"></span>
             <form data-address-form>
               <label class="sr-only" for="address">Gopher address</label>
-              <input id="address" type="url" value="gopher://dig.local/1/" autocomplete="off" spellcheck="false" readonly aria-readonly="true" data-address />
-              <button type="submit" data-go>Open</button>
+              <input id="address" type="url" value="gopher://dig.local/1/" autocomplete="off" spellcheck="false" readonly aria-readonly="true" disabled data-address />
+              <button type="submit" data-go disabled>Open</button>
             </form>
             <span class="mode" data-mode>Checking mode</span>
           </div>
           <div class="explorer-toolbar" aria-label="Explorer controls">
             <div class="toolbar-group">
-              <button type="button" data-back disabled>← <span>Back</span></button>
-              <button type="button" data-forward disabled><span>Forward</span> →</button>
-              <button type="button" data-home>Home</button>
+              <button type="button" aria-label="Back" data-back disabled>← <span>Back</span></button>
+              <button type="button" aria-label="Forward" data-forward disabled><span>Forward</span> →</button>
+              <button type="button" data-home disabled>Home</button>
             </div>
-            <div class="toolbar-group">
+            <div class="toolbar-group toolbar-actions">
               <button type="button" data-bookmark disabled>Save bookmark</button>
-              <button type="button" data-raw-toggle aria-pressed="false">Raw off</button>
+              <button type="button" data-raw-toggle aria-pressed="false" disabled>Raw off</button>
+              <button type="button" data-share disabled>Share</button>
               <button type="button" data-export disabled>Export JSON</button>
             </div>
           </div>
@@ -125,7 +148,7 @@
               <label for="access-token">Hosted access token</label>
               <p>The token stays in this browser tab and is sent only to this origin.</p>
             </div>
-            <input id="access-token" name="access-token" type="password" autocomplete="off" data-access-token />
+            <input id="access-token" name="access-token" type="password" minlength="16" autocomplete="off" required data-access-token />
             <button type="submit">Unlock</button>
           </form>
           <form class="search-form" data-search-form hidden>
@@ -133,19 +156,23 @@
               <label for="search-query">Search query</label>
               <p data-search-target>Enter a query for this Gopher search item.</p>
             </div>
-            <input id="search-query" name="query" type="search" maxlength="1024" autocomplete="off" data-search-query />
+            <input id="search-query" name="query" type="search" maxlength="1024" autocomplete="off" required data-search-query />
             <button type="submit">Search</button>
             <button type="button" data-search-cancel>Cancel</button>
           </form>
-          <div class="browser-grid">
+          <div class="mobile-panel-tabs" aria-label="Explorer panels">
+            <button type="button" aria-pressed="true" data-resource-tab>Browse</button>
+            <button type="button" aria-pressed="false" data-trace-tab>Trace</button>
+          </div>
+          <div class="browser-grid" data-panel-container data-mobile-panel="resource">
             <div class="menu-pane resource-pane">
               <div class="pane-heading">
-                <p data-resource-heading>RESOURCE</p>
+                <p id="resource-heading" tabindex="-1" data-resource-heading>RESOURCE</p>
                 <span data-count>Waiting</span>
               </div>
-              <div class="menu-list resource-content" data-resource aria-live="polite"></div>
+              <div class="menu-list resource-content" data-resource aria-labelledby="resource-heading"></div>
             </div>
-            <aside class="trace-pane" aria-labelledby="trace-title">
+            <aside class="trace-pane" aria-labelledby="trace-title" tabindex="-1" data-trace-panel>
               <p class="trace-kicker" id="trace-title">PROTOCOL TRACE</p>
               <div class="trace-type" data-type>—</div>
               <h3 data-label>Waiting for a resource</h3>
@@ -182,6 +209,12 @@
           </div>
         </div>
         <p class="fixture-note" role="status" aria-live="polite" data-fixture-status><span aria-hidden="true">●</span> Detecting the available transport.</p>
+        <!-- android-exclude:app-meta:start -->
+        <nav class="app-meta-links" aria-label="Web app information">
+          <a href="https://github.com/ejupi-djenis30/Dig/blob/main/PRIVACY.md">Privacy</a>
+          <a href="https://github.com/ejupi-djenis30/Dig#local-explorer">Help</a>
+        </nav>
+        <!-- android-exclude:app-meta:end -->
       </section>
 
       <section class="protocol section" id="protocol" aria-labelledby="protocol-title">
@@ -216,8 +249,10 @@
     <footer>
       <img src="assets/dig-lockup.svg" alt="DIG — Gopher Protocol Explorer" width="190" height="55" />
       <p>A small client for a small protocol.</p>
-      <a href="https://github.com/ejupi-djenis30/Dig">DIG contributors <span aria-hidden="true">↗</span></a>
+      <!-- android-exclude:footer-links:start -->
+      <span class="footer-links"><a href="https://github.com/ejupi-djenis30/Dig/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/ejupi-djenis30/Dig">DIG contributors <span aria-hidden="true">↗</span></a></span>
+      <!-- android-exclude:footer-links:end -->
     </footer>
-    <script type="module" src="app.mjs?v=3.0.0"></script>
+    <script type="module" src="app.mjs?v=3.2.0"></script>
   </body>
 </html>

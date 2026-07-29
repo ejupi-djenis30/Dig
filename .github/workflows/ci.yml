@@ -20,12 +20,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - node: 20
-            node-version: "20.20.2"
-            npm-version: "10.8.2"
           - node: 22
             node-version: "22.23.1"
             npm-version: "10.9.8"
+          - node: 24
+            node-version: "24.18.0"
+            npm-version: "11.16.0"
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -98,7 +98,7 @@ jobs:
             grep --fixed-strings '"kind":"external"'
 
   browser-e2e:
-    name: Chromium E2E
+    name: Browser E2E (Chromium + WebKit)
     timeout-minutes: 10
     runs-on: ubuntu-24.04
     steps:
@@ -121,8 +121,8 @@ jobs:
           [[ "$(npm --version)" == "${EXPECTED_NPM_VERSION}" ]]
       - name: Install locked dependencies
         run: npm ci --ignore-scripts
-      - name: Install pinned Chromium runtime
-        run: npx --no-install playwright install --with-deps chromium
+      - name: Install pinned browser runtimes
+        run: npx --no-install playwright install --with-deps chromium webkit
       - name: Exercise the real protocol explorer
         run: npm run test:e2e
       - name: Upload failure diagnostics
@@ -133,3 +133,44 @@ jobs:
           path: test-results/playwright
           if-no-files-found: ignore
           retention-days: 7
+
+  android:
+    name: Android build
+    timeout-minutes: 15
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up exact Node.js runtime
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.23.1"
+          cache: npm
+      - name: Set up JDK 21
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+      - name: Set up Android SDK command-line tools
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+      - name: Install locked JavaScript dependencies
+        run: npm ci --ignore-scripts
+      - name: Install Android SDK 36
+        run: sdkmanager --install "platforms;android-36" "build-tools;36.0.0"
+      - name: Synchronize packaged Android assets
+        run: npm run android:sync
+      - name: Test, lint, and assemble the Android app
+        run: |
+          chmod +x android/gradlew
+          ./android/gradlew \
+            --no-daemon \
+            --project-dir android \
+            :app:testDebugUnitTest \
+            :app:lintDebug \
+            :app:lintRelease \
+            :app:assembleDebug \
+            :app:assembleRelease \
+            :app:assembleDebugAndroidTest
