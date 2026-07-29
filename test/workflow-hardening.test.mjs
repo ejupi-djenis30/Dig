@@ -137,6 +137,13 @@ test("Pages build has read-only source access and deployment alone receives Page
   assert.equal(build.steps.some((step) => step.uses?.startsWith("actions/deploy-pages@")), false);
   assert.ok(build.steps.some((step) => step.with?.["node-version"] === "22.23.1"));
   assert.ok(build.steps.some((step) => step.run?.includes("npm audit --audit-level=moderate")));
+  const upload = build.steps.find((step) =>
+    step.uses?.startsWith("actions/upload-pages-artifact@"),
+  );
+  assert.deepEqual(upload?.with, {
+    path: "site",
+    "include-hidden-files": true,
+  });
 
   assert.equal(deploy.needs, "build");
   assert.equal(deploy["runs-on"], "ubuntu-24.04");
