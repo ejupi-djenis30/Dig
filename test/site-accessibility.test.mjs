@@ -58,6 +58,39 @@ test("site assets and the service-worker cache roll over with every release", as
   assert.doesNotMatch(serviceWorker, /caches\.match\(request\)\.then/u);
 });
 
+test("project Pages discovery and security documents stay canonical", async () => {
+  const [robots, sitemap, security] = await Promise.all([
+    readFile(new URL("robots.txt", siteRoot), "utf8"),
+    readFile(new URL("sitemap.xml", siteRoot), "utf8"),
+    readFile(new URL(".well-known/security.txt", siteRoot), "utf8"),
+  ]);
+
+  assert.equal(
+    robots,
+    [
+      "User-agent: *",
+      "Allow: /Dig/",
+      "Sitemap: https://ejupi-djenis30.github.io/Dig/sitemap.xml",
+      "",
+    ].join("\n"),
+  );
+  assert.match(sitemap, /<loc>https:\/\/ejupi-djenis30\.github\.io\/Dig\/<\/loc>/u);
+  assert.match(
+    security,
+    /^Contact: https:\/\/github\.com\/ejupi-djenis30\/Dig\/security\/advisories\/new$/mu,
+  );
+  assert.match(
+    security,
+    /^Canonical: https:\/\/ejupi-djenis30\.github\.io\/Dig\/\.well-known\/security\.txt$/mu,
+  );
+  assert.match(security, /^Policy: https:\/\/github\.com\/ejupi-djenis30\/Dig\/security\/policy$/mu);
+  assert.match(security, /^Preferred-Languages: en$/mu);
+  assert.doesNotMatch(security, /mailto:|@[A-Za-z0-9.-]+/u);
+  const expiration = security.match(/^Expires:\s*(\S+)$/mu)?.[1];
+  assert.ok(expiration);
+  assert.ok(Date.parse(expiration) > Date.now());
+});
+
 test("public project surfaces use collective attribution", async () => {
   const [readme, license, html] = await Promise.all([
     readFile(new URL("README.md", repositoryRoot), "utf8"),

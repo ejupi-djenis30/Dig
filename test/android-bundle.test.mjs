@@ -47,6 +47,15 @@ test("Android bundle removes Source while the public site keeps it", async () =>
     androidStyles,
     /html\[data-runtime="android"\] \.header > nav \{ display: none; \}/u,
   );
+  for (const pagesOnlyMetadata of [
+    "dist/android/.well-known/security.txt",
+    "dist/android/robots.txt",
+    "dist/android/sitemap.xml",
+  ]) {
+    await assert.rejects(readFile(new URL(pagesOnlyMetadata, repositoryRoot)), {
+      code: "ENOENT",
+    });
+  }
 
   for (const path of await filesUnder(resolve(repositoryPath, "dist", "android"))) {
     const contents = await readFile(path);

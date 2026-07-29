@@ -11,10 +11,58 @@ const packageLock = JSON.parse(await readFile(new URL("package-lock.json", repos
 const changelog = await readFile(new URL("CHANGELOG.md", repositoryRoot), "utf8");
 const privacy = await readFile(new URL("PRIVACY.md", repositoryRoot), "utf8");
 const manifest = JSON.parse(await readFile(new URL("manifest.webmanifest", root), "utf8"));
+const robots = await readFile(new URL("robots.txt", root), "utf8");
+const sitemap = await readFile(new URL("sitemap.xml", root), "utf8");
+const security = await readFile(new URL(".well-known/security.txt", root), "utf8");
 const expectedCsp = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'";
 const socialPreviewUrl = "https://ejupi-djenis30.github.io/Dig/assets/social-preview.png";
-for (const fragment of ["styles.css", "app.mjs", "protocol.mjs", "manifest.webmanifest", "sw.js", "assets/dig-mark.svg", "assets/dig-mark-maskable.svg", "assets/dig-mark-180.png", "assets/dig-mark-192.png", "assets/dig-mark-512.png", "assets/screenshot-mobile.png", "assets/social-preview.png", "fixtures/root.txt"]) {
+const siteUrl = "https://ejupi-djenis30.github.io/Dig/";
+for (const fragment of [".well-known/security.txt", "robots.txt", "sitemap.xml", "styles.css", "app.mjs", "protocol.mjs", "manifest.webmanifest", "sw.js", "assets/dig-mark.svg", "assets/dig-mark-maskable.svg", "assets/dig-mark-180.png", "assets/dig-mark-192.png", "assets/dig-mark-512.png", "assets/screenshot-mobile.png", "assets/social-preview.png", "fixtures/root.txt"]) {
   await stat(new URL(fragment, root));
+}
+if (
+  robots !== [
+    "User-agent: *",
+    "Allow: /Dig/",
+    `Sitemap: ${siteUrl}sitemap.xml`,
+    "",
+  ].join("\n")
+) {
+  throw new Error("robots.txt must retain DIG's project Pages scope and canonical sitemap URL.");
+}
+if (
+  sitemap !== [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    "  <url>",
+    `    <loc>${siteUrl}</loc>`,
+    "  </url>",
+    "</urlset>",
+    "",
+  ].join("\n")
+) {
+  throw new Error("sitemap.xml must expose exactly DIG's canonical project Pages URL.");
+}
+for (const line of [
+  "Contact: https://github.com/ejupi-djenis30/Dig/security/advisories/new",
+  "Preferred-Languages: en",
+  `Canonical: ${siteUrl}.well-known/security.txt`,
+  "Policy: https://github.com/ejupi-djenis30/Dig/security/policy",
+]) {
+  if (!security.split(/\r?\n/u).includes(line)) {
+    throw new Error(`security.txt is missing ${line}`);
+  }
+}
+if (/^Contact:\s*mailto:/imu.test(security) || /@[A-Za-z0-9.-]+/u.test(security)) {
+  throw new Error("security.txt must direct reports to GitHub private vulnerability reporting, not email.");
+}
+const securityExpiration = security.match(/^Expires:\s*(\S+)$/imu)?.[1];
+if (
+  !securityExpiration
+  || Number.isNaN(Date.parse(securityExpiration))
+  || Date.parse(securityExpiration) <= Date.now()
+) {
+  throw new Error("security.txt must carry a valid future expiration.");
 }
 for (const required of ['lang="en"', "<title>", "<main", "aria-label", "Run DIG locally", "data-security-banner", "data-history-list", "data-bookmark-list", "data-resource-tab", "data-trace-tab", "data-install", "viewport-fit=cover", 'name="apple-mobile-web-app-capable" content="yes"', 'name="apple-mobile-web-app-status-bar-style" content="black-translucent"', 'rel="manifest"', 'rel="apple-touch-icon" sizes="180x180" href="assets/dig-mark-180.png"', "readonly", "PRIVACY.md", '<meta name="referrer" content="no-referrer" />', 'http-equiv="Content-Security-Policy"', `content="${expectedCsp}"`, `property="og:image" content="${socialPreviewUrl}"`, 'property="og:image:width" content="1200"', 'property="og:image:height" content="675"', "property=\"og:image:alt\"", 'name="twitter:card" content="summary_large_image"', `name="twitter:image" content="${socialPreviewUrl}"`, 'name="twitter:image:alt"']) {
   if (!html.includes(required)) throw new Error(`index.html is missing ${required}`);
