@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       expected_tag:
-        description: Optional v<version> value to exercise tag validation without publishing
+        description: Optional v<version> value to exercise tag validation and signed Android packaging without publishing
         required: false
         type: string
   push:
@@ -19,6 +19,7 @@ permissions:
 
 env:
   RELEASE_PUBLICATION_ENABLED: "true"
+  ANDROID_BUILD_TOOLS_VERSION: "36.0.0"
 
 concurrency:
   group: release-${{ github.ref }}
@@ -28,7 +29,7 @@ jobs:
   build:
     name: Build and verify release candidate
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -61,18 +62,23 @@ jobs:
         run: |
           set -euo pipefail
           arguments=()
+          source_commit="$(git rev-parse HEAD)"
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            source_commit="$(git rev-parse "${GITHUB_REF_NAME}^{commit}")"
-            [[ "${source_commit}" == "$(git rev-parse HEAD)" ]]
+            [[ "$(git rev-parse "${GITHUB_REF_NAME}^{commit}")" == "${source_commit}" ]]
             git fetch --no-tags origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
             default_head="$(git rev-parse "refs/remotes/origin/${DEFAULT_BRANCH}^{commit}")"
             git merge-base --is-ancestor "${source_commit}" "${default_head}"
             arguments+=(--tag "${GITHUB_REF_NAME}")
           elif [[ -n "${EXPECTED_TAG}" ]]; then
+            [[ "${GITHUB_REF_TYPE}" == "branch" ]]
+            [[ "${GITHUB_REF_NAME}" == "${DEFAULT_BRANCH}" ]]
+            git fetch --no-tags origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+            [[ "$(git rev-parse HEAD)" == "$(git rev-parse "refs/remotes/origin/${DEFAULT_BRANCH}^{commit}")" ]]
             arguments+=(--tag "${EXPECTED_TAG}")
           fi
           version="$(node scripts/validate-release.mjs "${arguments[@]}")"
           printf 'version=%s\n' "${version}" >> "${GITHUB_OUTPUT}"
+          printf 'source_commit=%s\n' "${source_commit}" >> "${GITHUB_OUTPUT}"
 
       - name: Test and audit all dependencies
         run: |
@@ -113,19 +119,103 @@ jobs:
           npm ls --omit=dev --all --json > target/dependencies-b.json
           cmp "target/dig-npm-dependencies-${VERSION}.json" target/dependencies-b.json
 
+      - name: Set up JDK 21 for signed Android release
+        if: (github.event_name == 'workflow_dispatch' && inputs.expected_tag != '') || (github.event_name == 'push' && github.ref_type == 'tag')
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Set up Android SDK command-line tools
+        if: (github.event_name == 'workflow_dispatch' && inputs.expected_tag != '') || (github.event_name == 'push' && github.ref_type == 'tag')
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+
+      - name: Install pinned Android SDK
+        if: (github.event_name == 'workflow_dispatch' && inputs.expected_tag != '') || (github.event_name == 'push' && github.ref_type == 'tag')
+        run: sdkmanager --install "platforms;android-36" "build-tools;${ANDROID_BUILD_TOOLS_VERSION}"
+
+      - name: Materialize dedicated Android signing identity
+        id: signing
+        if: (github.event_name == 'workflow_dispatch' && inputs.expected_tag != '') || (github.event_name == 'push' && github.ref_type == 'tag')
+        shell: bash
+        env:
+          DIG_ANDROID_KEYSTORE_BASE64: ${{ secrets.DIG_ANDROID_KEYSTORE_BASE64 }}
+          DIG_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.DIG_ANDROID_KEYSTORE_PASSWORD }}
+          DIG_ANDROID_KEY_ALIAS: ${{ secrets.DIG_ANDROID_KEY_ALIAS }}
+          DIG_ANDROID_KEY_PASSWORD: ${{ secrets.DIG_ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in \
+            DIG_ANDROID_KEYSTORE_BASE64 \
+            DIG_ANDROID_KEYSTORE_PASSWORD \
+            DIG_ANDROID_KEY_ALIAS \
+            DIG_ANDROID_KEY_PASSWORD
+          do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Missing required Actions secret ${name}."
+              missing=1
+            fi
+          done
+          [[ "${missing}" == "0" ]]
+          keystore="${RUNNER_TEMP}/dig-release-signing.p12"
+          [[ ! -e "${keystore}" && ! -L "${keystore}" ]]
+          umask 077
+          set -o noclobber
+          printf '%s' "${DIG_ANDROID_KEYSTORE_BASE64}" | base64 --decode > "${keystore}"
+          set +o noclobber
+          [[ -s "${keystore}" && ! -L "${keystore}" ]]
+          chmod 0600 "${keystore}"
+
+      - name: Build and verify signed Android APK
+        if: (github.event_name == 'workflow_dispatch' && inputs.expected_tag != '') || (github.event_name == 'push' && github.ref_type == 'tag')
+        env:
+          DIG_ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/dig-release-signing.p12
+          DIG_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.DIG_ANDROID_KEYSTORE_PASSWORD }}
+          DIG_ANDROID_KEY_ALIAS: ${{ secrets.DIG_ANDROID_KEY_ALIAS }}
+          DIG_ANDROID_KEY_PASSWORD: ${{ secrets.DIG_ANDROID_KEY_PASSWORD }}
+          DIG_ANDROID_RELEASE_DIRECTORY: ${{ runner.temp }}/dig-android-release
+          DIG_SOURCE_COMMIT: ${{ steps.metadata.outputs.source_commit }}
+        run: npm run android:apk
+
+      - name: Remove temporary Android signing material
+        if: always() && steps.signing.outcome != 'skipped'
+        shell: bash
+        env:
+          KEYSTORE_PATH: ${{ runner.temp }}/dig-release-signing.p12
+        run: |
+          set -euo pipefail
+          case "${KEYSTORE_PATH}" in
+            "${RUNNER_TEMP}"/*) ;;
+            *) echo "::error::Refusing to remove an unsafe signing path."; exit 1 ;;
+          esac
+          rm -f -- "${KEYSTORE_PATH}"
+
       - name: Assemble and reverify release bundle
         shell: bash
         env:
           VERSION: ${{ steps.metadata.outputs.version }}
           ARCHIVE: ${{ steps.package.outputs.archive }}
+          ANDROID_RELEASE_DIRECTORY: ${{ runner.temp }}/dig-android-release
+          SIGNED_ANDROID_RELEASE: ${{ (github.event_name == 'workflow_dispatch' && inputs.expected_tag != '') || (github.event_name == 'push' && github.ref_type == 'tag') }}
         run: |
           set -euo pipefail
+          arguments=()
+          if [[ "${SIGNED_ANDROID_RELEASE}" == "true" ]]; then
+            apk="${ANDROID_RELEASE_DIRECTORY}/DIG-${VERSION}.apk"
+            checksum="${apk}.sha256"
+            [[ -f "${apk}" && ! -L "${apk}" ]]
+            [[ -f "${checksum}" && ! -L "${checksum}" ]]
+            arguments+=(--apk "${apk}" --apk-checksum "${checksum}")
+          fi
           node scripts/validate-release.mjs \
             --assemble release \
             --commit "$(git rev-parse HEAD)" \
             --archive "${ARCHIVE}" \
             --sbom "target/dig-${VERSION}.cdx.json" \
-            --dependencies "target/dig-npm-dependencies-${VERSION}.json"
+            --dependencies "target/dig-npm-dependencies-${VERSION}.json" \
+            "${arguments[@]}"
 
       - name: Upload verified release candidate
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -141,7 +231,7 @@ jobs:
     if: github.event_name == 'push' && github.ref_type == 'tag'
     needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: write
       id-token: write
@@ -185,6 +275,19 @@ jobs:
           [[ "$(node --version)" == "v22.23.1" ]]
           [[ "$(npm --version)" == "10.9.8" ]]
 
+      - name: Set up JDK 21 for independent APK verification
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Set up Android SDK for independent APK verification
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+
+      - name: Install pinned Android verification tools
+        run: sdkmanager --install "platforms;android-36" "build-tools;${ANDROID_BUILD_TOOLS_VERSION}"
+
       - name: Install verified GitHub CLI
         shell: bash
         env:
@@ -221,11 +324,24 @@ jobs:
           git fetch --no-tags origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
           default_head="$(git rev-parse "refs/remotes/origin/${DEFAULT_BRANCH}^{commit}")"
           git merge-base --is-ancestor "${source_commit}" "${default_head}"
+          version="$(node scripts/validate-release.mjs --tag "${GITHUB_REF_NAME}")"
           printf 'source_commit=%s\n' "${source_commit}" >> "${GITHUB_OUTPUT}"
+          printf 'version=%s\n' "${version}" >> "${GITHUB_OUTPUT}"
           node scripts/validate-release.mjs \
             --tag "${GITHUB_REF_NAME}" \
             --verify-bundle release \
+            --require-android true \
             --commit "${source_commit}"
+
+      - name: Independently verify signed Android APK
+        env:
+          VERSION: ${{ steps.source.outputs.version }}
+          SOURCE_COMMIT: ${{ steps.source.outputs.source_commit }}
+        run: >-
+          node scripts/verify-android-apk.mjs
+          --apk "release/DIG-${VERSION}.apk"
+          --checksum "release/DIG-${VERSION}.apk.sha256"
+          --commit "${SOURCE_COMMIT}"
 
       - name: Attest release assets
         uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0

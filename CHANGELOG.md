@@ -1,10 +1,14 @@
 # Changelog
 
-## 3.2.0 — 2026-07-26
+## 3.2.0 — 2026-07-29
 
 - Add a standalone Android application with direct, bounded Gopher TCP transport and no remote web dependency.
 - Remove the Source link from the packaged Android assets while retaining it on the public website.
 - Add Android destination policy, cancellation, timeout, build and bundle regression coverage.
+- Make the explorer installable and usable as a mobile PWA with safe-area layouts, touch navigation, offline recovery, explicit updates and iOS assets.
+- Add mobile Chromium and WebKit coverage, a privacy disclosure and production checks for install metadata and screenshots.
+- Harden hosted origin validation, loopback matching, IPv6 documentation ranges and container runtime configuration.
+- Publish the signed Android APK only after its application identity, version, permissions, certificate, embedded source commit and checksums pass independent verification.
 
 ## 3.1.0 — 2026-07-26
 

@@ -148,6 +148,6 @@ test/ and e2e/           unit, integration and browser tests
 
 ## Release integrity
 
-Release validation keeps the package version, lockfile, CLI output and changelog aligned. It checks the exact archive inventory, rebuilds artifacts for reproducibility, verifies checksums and source binding, and publishes only the reviewed tag contract. GitHub attestations bind released assets to the repository, commit, tag and signer workflow.
+Release validation keeps the package version, lockfile, CLI output, Android identity and changelog aligned. It checks the exact archive inventory, verifies the signed APK twice, binds its embedded source commit and checksums to the tag, and publishes only the reviewed tag contract. GitHub attestations bind every released asset, including the APK, to the repository, commit, tag and signer workflow.
 
 The package remains private on npm; distribution uses signed GitHub Release artifacts. DIG is available under the [MIT License](LICENSE). Ejupi Labs and DIG contributors share credit for the project.
