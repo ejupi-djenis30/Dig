@@ -68,7 +68,7 @@ test("local API serves config and fetches a real fixture menu", async (context) 
   const pageResponse = await fetch(`${origin}/Dig/`);
   assert.equal(pageResponse.status, 200);
   assert.equal(pageResponse.headers.get("cache-control"), "no-cache");
-  const versionedAsset = await fetch(`${origin}/Dig/styles.css?v=3.2.0`);
+  const versionedAsset = await fetch(`${origin}/Dig/styles.css?v=3.2.1`);
   assert.equal(versionedAsset.status, 200);
   assert.equal(
     versionedAsset.headers.get("cache-control"),

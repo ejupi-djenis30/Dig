@@ -282,6 +282,33 @@ test.describe("320px viewport", () => {
     expect(geometry.link.right).toBeLessThanOrEqual(geometry.hero.right + 1);
   });
 
+  test("keeps the project not-found page readable and inside the viewport", async ({
+    page,
+  }) => {
+    await page.goto("./404.html");
+    await expect(page).toHaveTitle("Not found — DIG");
+    await expect(page.getByRole("heading", { name: "No menu item here." })).toBeVisible();
+    await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", "noindex");
+    const explorerLink = page.getByRole("link", { name: "Open the explorer" });
+    await expect(explorerLink).toHaveAttribute("href", "/Dig/#explorer");
+
+    const geometry = await page.evaluate(() => {
+      const main = document.querySelector("main").getBoundingClientRect();
+      const action = document.querySelector(".primary-action").getBoundingClientRect();
+      return {
+        documentWidth: document.documentElement.scrollWidth,
+        viewportWidth: document.documentElement.clientWidth,
+        main: { left: main.left, right: main.right },
+        action: { left: action.left, right: action.right, height: action.height },
+      };
+    });
+
+    expect(geometry.documentWidth).toBeLessThanOrEqual(geometry.viewportWidth);
+    expect(geometry.action.height).toBeGreaterThanOrEqual(44);
+    expect(geometry.action.left).toBeGreaterThanOrEqual(geometry.main.left - 1);
+    expect(geometry.action.right).toBeLessThanOrEqual(geometry.main.right + 1);
+  });
+
   test("keeps the live explorer and every visible control in the viewport", async ({
     page,
   }) => {

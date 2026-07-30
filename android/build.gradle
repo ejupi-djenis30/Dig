@@ -1,3 +1,5 @@
+import org.gradle.api.artifacts.dsl.LockMode
+
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
 
 buildscript {
@@ -22,8 +24,18 @@ allprojects {
         google()
         mavenCentral()
     }
+    def lockFileName = project.path == ':'
+        ? 'root.lockfile'
+        : "${project.path.substring(1).replace(':', '-')}.lockfile"
+    dependencyLocking {
+        lockAllConfigurations()
+        lockMode = LockMode.STRICT
+        lockFile = rootProject.file("gradle/dependency-locks/${lockFileName}")
+    }
 }
 
 task clean(type: Delete) {
     delete rootProject.buildDir
 }
+
+apply from: "gradle/verify-dependency-locks.gradle"

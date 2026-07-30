@@ -1,15 +1,24 @@
 {
   "name": "dig-gopher-explorer",
-  "version": "3.2.0",
+  "version": "3.2.1",
   "private": true,
   "license": "MIT",
   "type": "module",
   "description": "A bounded Gopher client, local gateway, and protocol inspector.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ejupi-djenis30/Dig.git"
+  },
+  "homepage": "https://ejupi-djenis30.github.io/Dig/",
+  "bugs": {
+    "url": "https://github.com/ejupi-djenis30/Dig/issues"
+  },
   "bin": {
     "dig-gopher": "./bin/dig.mjs"
   },
   "files": [
     "bin",
+    "docs",
     "src",
     "site",
     "CHANGELOG.md",

@@ -25,8 +25,9 @@ import {
   verifyPublishedAssets,
 } from "../scripts/publish-release.mjs";
 
-const VERSION = "3.2.0";
+const VERSION = "3.2.1";
 const COMMIT = "a".repeat(40);
+const TAG_OBJECT = "d".repeat(40);
 const RELEASE_TOOLING = {
   "@capacitor/android": "8.4.2",
   "@capacitor/cli": "8.4.2",
@@ -81,6 +82,24 @@ test("version validation uses top-level CommonMark H2 sections and real list not
       version: VERSION,
       private: true,
       license: "MIT",
+      repository: {
+        type: "git",
+        url: "git+https://github.com/ejupi-djenis30/Dig.git",
+      },
+      homepage: "https://ejupi-djenis30.github.io/Dig/",
+      bugs: {
+        url: "https://github.com/ejupi-djenis30/Dig/issues",
+      },
+      files: [
+        "bin",
+        "docs",
+        "src",
+        "site",
+        "CHANGELOG.md",
+        "LICENSE",
+        "PRIVACY.md",
+        "SECURITY.md",
+      ],
       devDependencies: RELEASE_TOOLING,
     }),
     packageLockJson: JSON.stringify({
@@ -511,7 +530,7 @@ test("release bundle has exact inventory, source binding, and checksums", async 
     assert.equal(androidMetadata.schemaVersion, 2);
     assert.equal(androidMetadata.artifacts.android.apk, `DIG-${VERSION}.apk`);
     assert.equal(androidMetadata.artifacts.android.sourceCommit, COMMIT);
-    assert.equal(androidMetadata.artifacts.android.versionCode, 30200);
+    assert.equal(androidMetadata.artifacts.android.versionCode, 30201);
     assert.match(
       await readFile(join(androidOutput, "SHA256SUMS"), "utf8"),
       new RegExp(`DIG-${VERSION.replaceAll(".", "\\.")}\\.apk$`, "m"),
@@ -634,6 +653,11 @@ class FakeGitHub {
       publishedImmutable: true,
       replaceDraftBeforeUpload: false,
       tagCommit: COMMIT,
+      tagName: `v${VERSION}`,
+      tagObject: TAG_OBJECT,
+      tagRefType: "tag",
+      tagTargetType: "commit",
+      tagVerified: true,
       uploadUrl: undefined,
       wrongLatest: false,
       ...options,
@@ -683,7 +707,28 @@ class FakeGitHub {
     }
     if (endpoint === "repos/owner/repository" && method === "GET") return ok({ default_branch: "main" });
     if (endpoint === `repos/owner/repository/git/ref/tags/v${VERSION}` && method === "GET") {
-      return ok({ object: { type: "commit", sha: this.options.tagCommit } });
+      return ok({
+        object: {
+          type: this.options.tagRefType,
+          sha: this.options.tagRefType === "tag"
+            ? this.options.tagObject
+            : this.options.tagCommit,
+        },
+      });
+    }
+    if (endpoint === `repos/owner/repository/git/tags/${this.options.tagObject}` && method === "GET") {
+      return ok({
+        sha: this.options.tagObject,
+        tag: this.options.tagName,
+        object: {
+          type: this.options.tagTargetType,
+          sha: this.options.tagCommit,
+        },
+        verification: {
+          verified: this.options.tagVerified,
+          reason: this.options.tagVerified ? "valid" : "unsigned",
+        },
+      });
     }
     if (endpoint === "repos/owner/repository/git/ref/heads/main" && method === "GET") {
       return ok({ object: { type: "commit", sha: this.options.defaultHead } });
@@ -1008,6 +1053,19 @@ test("publisher verifies remote tag and default-branch containment before any mu
   const advanced = new FakeGitHub(expected, { defaultHead: "b".repeat(40), branchContained: true });
   await publish(directory, advanced);
   assert.ok(advanced.calls.some((args) => args[1]?.includes(`/compare/${COMMIT}...`)));
+});
+
+test("publisher rejects lightweight, unverified, and nested release tags before mutation", async () => {
+  const { directory, expected } = await candidateDirectory();
+  for (const [options, pattern] of [
+    [{ tagRefType: "commit" }, /must be an annotated tag/],
+    [{ tagVerified: false }, /must have a GitHub-verified signature/],
+    [{ tagTargetType: "tag" }, /must target a commit directly/],
+  ]) {
+    const fake = new FakeGitHub(expected, options);
+    await assert.rejects(() => publish(directory, fake), pattern);
+    assert.equal(fake.calls.filter(isMutation).length, 0);
+  }
 });
 
 test("publisher fails closed after a mutable or non-latest publication", async () => {

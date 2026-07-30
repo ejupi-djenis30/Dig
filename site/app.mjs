@@ -3,7 +3,7 @@ import {
   parseGopherUrl,
   parseMenu,
   toGopherUrl,
-} from "./protocol.mjs?v=3.2.0";
+} from "./protocol.mjs?v=3.2.1";
 
 const BOOKMARK_KEY = "dig.bookmarks.v1";
 const HISTORY_KEY = "dig.history.v1";
@@ -748,7 +748,7 @@ async function navigate(address, options = {}) {
 }
 
 async function loadFixture() {
-  const response = await fetch("fixtures/root.txt?v=3.2.0");
+  const response = await fetch("fixtures/root.txt?v=3.2.1");
   if (!response.ok) {
     throw new Error(`Fixture request returned HTTP ${response.status}.`);
   }
@@ -909,7 +909,7 @@ async function registerServiceWorker() {
   if (nativeTransport || !("serviceWorker" in navigator)) return null;
   try {
     const registration = await navigator.serviceWorker.register(
-      "./sw.js?v=3.2.0",
+      "./sw.js?v=3.2.1",
       { scope: "./", updateViaCache: "none" },
     );
     if (registration.waiting && navigator.serviceWorker.controller) {

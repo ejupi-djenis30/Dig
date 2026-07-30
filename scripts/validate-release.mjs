@@ -31,6 +31,24 @@ const reviewedDevelopmentTooling = {
   unified: "11.0.5",
   yaml: "2.9.0",
 };
+const canonicalPackageRepository = {
+  type: "git",
+  url: "git+https://github.com/ejupi-djenis30/Dig.git",
+};
+const canonicalPackageHomepage = "https://ejupi-djenis30.github.io/Dig/";
+const canonicalPackageBugs = {
+  url: "https://github.com/ejupi-djenis30/Dig/issues",
+};
+const canonicalPackageFiles = [
+  "bin",
+  "docs",
+  "src",
+  "site",
+  "CHANGELOG.md",
+  "LICENSE",
+  "PRIVACY.md",
+  "SECURITY.md",
+];
 const canonicalMitLicense = `MIT License
 
 Copyright (c) 2026 Ejupi Labs and DIG contributors
@@ -239,6 +257,10 @@ export function validateVersionTexts({ packageJson, packageLockJson, changelog, 
     reviewedDevelopmentTooling,
     "Development tooling must remain exactly pinned.",
   );
+  assert.deepEqual(packageMetadata.repository, canonicalPackageRepository, "Package repository metadata must point to DIG.");
+  assert.equal(packageMetadata.homepage, canonicalPackageHomepage, "Package homepage metadata must point to DIG Pages.");
+  assert.deepEqual(packageMetadata.bugs, canonicalPackageBugs, "Package issue metadata must point to the DIG issue tracker.");
+  assert.deepEqual(packageMetadata.files, canonicalPackageFiles, "Package files must retain the reviewed release inventory.");
   assert.equal(lockMetadata.version, version, "package-lock.json must match package.json.");
   assert.equal(lockMetadata.packages?.[""]?.version, version, "The lockfile root version must match package.json.");
   assert.equal(
@@ -358,6 +380,10 @@ export async function validateReleaseBundle({
   const expectedPackageFiles = [
     "package/package.json",
     "package/bin/dig.mjs",
+    "package/docs/ANDROID.md",
+    "package/docs/API.md",
+    "package/docs/PROTOCOL.md",
+    "package/docs/SELF_HOSTING.md",
     "package/src/atomic-output.mjs",
     "package/src/cli.mjs",
     "package/src/client.mjs",
@@ -367,6 +393,7 @@ export async function validateReleaseBundle({
     "package/src/resource.mjs",
     "package/site/.nojekyll",
     "package/site/.well-known/security.txt",
+    "package/site/404.html",
     "package/site/app.mjs",
     "package/site/assets/dig-lockup.svg",
     "package/site/assets/dig-mark-180.png",
@@ -410,6 +437,10 @@ export async function validateReleaseBundle({
   assert.equal(packagedMetadata.version, version, "CLI archive version does not match the release.");
   assert.equal(packagedMetadata.private, true, "The CLI archive must remain private on npm; distribution uses GitHub Releases.");
   assert.equal(packagedMetadata.license, "MIT", "CLI archive licensing metadata must use the MIT SPDX identifier.");
+  assert.deepEqual(packagedMetadata.repository, canonicalPackageRepository, "CLI archive has the wrong repository metadata.");
+  assert.equal(packagedMetadata.homepage, canonicalPackageHomepage, "CLI archive has the wrong homepage metadata.");
+  assert.deepEqual(packagedMetadata.bugs, canonicalPackageBugs, "CLI archive has the wrong issue metadata.");
+  assert.deepEqual(packagedMetadata.files, canonicalPackageFiles, "CLI archive has the wrong file inventory metadata.");
   assert.equal(packagedMetadata.bin?.["dig-gopher"], "./bin/dig.mjs", "CLI archive has the wrong executable entry point.");
   assert.equal(packagedMetadata.dependencies, undefined, "CLI archive unexpectedly declares runtime dependencies.");
   const sbom = JSON.parse(await readFile(resolve(directory, `dig-${version}.cdx.json`), "utf8"));

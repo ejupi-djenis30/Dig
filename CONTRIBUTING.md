@@ -10,7 +10,7 @@ Search existing reports and use the issue forms. Never post private hostnames, I
 
 ## Local setup
 
-Install Node.js 20 or newer:
+Install Node.js 22 or newer:
 
 ```bash
 npm ci --ignore-scripts

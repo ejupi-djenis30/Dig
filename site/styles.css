@@ -124,6 +124,33 @@ h1 em { color: var(--orange); font-family: Georgia, serif; font-weight: 400; }
 .release-action:hover { border-color: var(--ink); background: var(--ink); }
 .release-action span { font-size: 1rem; }
 
+.not-found-main {
+  display: grid;
+  width: min(1240px, calc(100% - 8vw));
+  min-height: calc(100svh - 78px);
+  overflow: clip;
+  margin-inline: auto;
+  place-items: center start;
+  padding: 5rem 0;
+}
+.not-found { position: relative; width: min(100%, 56rem); isolation: isolate; }
+.not-found-code {
+  position: absolute;
+  z-index: -1;
+  top: 50%;
+  right: 0;
+  margin: 0;
+  color: var(--acid);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: clamp(15rem, 42vw, 34rem);
+  font-weight: 900;
+  line-height: .7;
+  transform: translateY(-50%);
+  opacity: .72;
+}
+.not-found h1 { max-width: 8ch; font-size: clamp(4rem, 10vw, 9rem); }
+.not-found .lead { max-width: 32rem; }
+
 .packet-art {
   position: relative;
   aspect-ratio: 1 / 1.05;
@@ -633,6 +660,9 @@ footer a { color: var(--ink); font-weight: 800; }
   a, button, input { min-width: 2.75rem; min-height: 2.75rem; }
   a { display: inline-flex; align-items: center; }
   .hero, .section, footer { width: calc(100% - 2.2rem); }
+  .not-found-main { width: calc(100% - 2.2rem); min-height: calc(100svh - 68px); padding: 4rem 0; }
+  .not-found-code { right: -.15em; font-size: min(82vw, 24rem); }
+  .not-found h1 { max-width: 7ch; }
   .hero { min-height: auto; padding: 4rem 0; }
   h1 { max-width: none; font-size: clamp(3.1rem,14.6vw,4rem); }
   .packet-art { width: 100%; }
