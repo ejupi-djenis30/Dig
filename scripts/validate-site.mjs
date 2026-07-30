@@ -3,6 +3,7 @@ import { readFile, stat } from "node:fs/promises";
 const root = new URL("../site/", import.meta.url);
 const repositoryRoot = new URL("../", import.meta.url);
 const html = await readFile(new URL("index.html", root), "utf8");
+const notFound = await readFile(new URL("404.html", root), "utf8");
 const styles = await readFile(new URL("styles.css", root), "utf8");
 const app = await readFile(new URL("app.mjs", root), "utf8");
 const serviceWorker = await readFile(new URL("sw.js", root), "utf8");
@@ -17,8 +18,26 @@ const security = await readFile(new URL(".well-known/security.txt", root), "utf8
 const expectedCsp = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'";
 const socialPreviewUrl = "https://ejupi-djenis30.github.io/Dig/assets/social-preview.png";
 const siteUrl = "https://ejupi-djenis30.github.io/Dig/";
-for (const fragment of [".nojekyll", ".well-known/security.txt", "robots.txt", "sitemap.xml", "styles.css", "app.mjs", "protocol.mjs", "manifest.webmanifest", "sw.js", "assets/dig-mark.svg", "assets/dig-mark-maskable.svg", "assets/dig-mark-180.png", "assets/dig-mark-192.png", "assets/dig-mark-512.png", "assets/screenshot-mobile.png", "assets/social-preview.png", "fixtures/root.txt"]) {
+const releaseVersion = packageMetadata.version;
+for (const fragment of [".nojekyll", ".well-known/security.txt", "404.html", "robots.txt", "sitemap.xml", "styles.css", "app.mjs", "protocol.mjs", "manifest.webmanifest", "sw.js", "assets/dig-mark.svg", "assets/dig-mark-maskable.svg", "assets/dig-mark-180.png", "assets/dig-mark-192.png", "assets/dig-mark-512.png", "assets/screenshot-mobile.png", "assets/social-preview.png", "fixtures/root.txt"]) {
   await stat(new URL(fragment, root));
+}
+for (const required of [
+  '<meta name="robots" content="noindex" />',
+  `href="/Dig/styles.css?v=${releaseVersion}"`,
+  'href="/Dig/#explorer"',
+  'href="/Dig/"',
+  'src="/Dig/assets/dig-mark.svg"',
+  "<title>Not found — DIG</title>",
+  "No menu item here.",
+]) {
+  if (!notFound.includes(required)) throw new Error(`404.html is missing ${required}`);
+}
+if (
+  !notFound.includes("default-src 'none'; style-src 'self'; img-src 'self'") ||
+  /<script\b|http-equiv="refresh"/iu.test(notFound)
+) {
+  throw new Error("404.html must remain a static, noindex page with a restrictive content policy.");
 }
 if (
   robots !== [
@@ -89,7 +108,9 @@ if (html.indexOf(skipLink) > html.indexOf('<header class="header">')) {
 for (const required of [".skip-link {", ".skip-link:focus-visible {", "env(safe-area-inset-top)", "@media (display-mode: standalone)", ".mobile-panel-tabs {"]) {
   if (!styles.includes(required)) throw new Error(`styles.css is missing ${required}`);
 }
-const releaseVersion = packageMetadata.version;
+for (const required of [".not-found-main {", ".not-found-code {", ".not-found h1 {"]) {
+  if (!styles.includes(required)) throw new Error(`styles.css is missing ${required}`);
+}
 if (!/^\d+\.\d+\.\d+$/.test(releaseVersion)) throw new Error("package.json needs a stable semantic version.");
 if (packageLock.version !== releaseVersion || packageLock.packages?.[""]?.version !== releaseVersion) {
   throw new Error(`package-lock.json must match package version ${releaseVersion}.`);

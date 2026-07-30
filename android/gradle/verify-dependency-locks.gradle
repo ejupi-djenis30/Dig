@@ -1,0 +1,229 @@
+import java.nio.file.Files
+import java.nio.file.LinkOption
+
+import org.gradle.api.GradleException
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.api.artifacts.dsl.LockMode
+import org.gradle.api.artifacts.result.ResolvedDependencyResult
+
+def expectedProjects = [
+    ':': [
+        buildscriptLock: rootProject.file('buildscript-gradle.lockfile'),
+        projectLock: rootProject.file('gradle/dependency-locks/root.lockfile'),
+        directClasspath: [
+            'com.android.tools.build:gradle:8.13.0',
+            'com.google.gms:google-services:4.4.4',
+        ] as Set,
+    ],
+    ':app': [
+        buildscriptLock: rootProject.file('gradle/dependency-locks/app-buildscript.lockfile'),
+        projectLock: rootProject.file('gradle/dependency-locks/app.lockfile'),
+        directClasspath: [] as Set,
+    ],
+    ':capacitor-android': [
+        buildscriptLock: rootProject.file(
+            'gradle/dependency-locks/capacitor-android-buildscript.lockfile'
+        ),
+        projectLock: rootProject.file('gradle/dependency-locks/capacitor-android.lockfile'),
+        directClasspath: ['com.android.tools.build:gradle:8.13.0'] as Set,
+    ],
+    ':capacitor-cordova-android-plugins': [
+        buildscriptLock: rootProject.file(
+            'gradle/dependency-locks/capacitor-cordova-android-plugins-buildscript.lockfile'
+        ),
+        projectLock: rootProject.file(
+            'gradle/dependency-locks/capacitor-cordova-android-plugins.lockfile'
+        ),
+        directClasspath: ['com.android.tools.build:gradle:8.13.0'] as Set,
+    ],
+]
+
+def fail = { String message ->
+    throw new GradleException("Dependency lock verification failed: ${message}")
+}
+
+def exactFile = { File actual, File expected, String label ->
+    if (actual.canonicalFile != expected.canonicalFile) {
+        fail("${label} uses ${actual.canonicalFile}, expected ${expected.canonicalFile}.")
+    }
+}
+
+def classpathLockCoordinates = { File lockFile, String projectPath ->
+    if (
+        !Files.isRegularFile(lockFile.toPath(), LinkOption.NOFOLLOW_LINKS)
+        || Files.isSymbolicLink(lockFile.toPath())
+    ) {
+        fail("${projectPath} buildscript lock is not a regular, non-symlink file: ${lockFile}.")
+    }
+
+    def lines = lockFile.readLines('UTF-8')
+    if (lines.first() != '# This is a Gradle generated file for dependency locking.') {
+        fail("${projectPath} buildscript lock has an unexpected header.")
+    }
+
+    def coordinates = new LinkedHashSet<String>()
+    def emptyStateConfigurations = null
+    lines.drop(1).eachWithIndex { String line, int index ->
+        if (line.isEmpty() || line.startsWith('#')) {
+            return
+        }
+        def separator = line.indexOf('=')
+        if (separator <= 0 || separator != line.lastIndexOf('=')) {
+            fail("${projectPath} buildscript lock has a malformed line ${index + 2}: ${line}")
+        }
+        def coordinate = line.substring(0, separator)
+        def configurations = line.substring(separator + 1)
+            .split(',', -1)
+            .findAll { !it.isEmpty() } as Set
+        if (coordinate == 'empty') {
+            if (emptyStateConfigurations != null) {
+                fail("${projectPath} buildscript lock repeats its empty-state marker.")
+            }
+            emptyStateConfigurations = configurations
+            return
+        }
+        if (!(coordinate ==~ /[^:=,\s]+:[^:=,\s]+:[^=,\s]+/)) {
+            fail("${projectPath} buildscript lock has an invalid module coordinate: ${coordinate}")
+        }
+        if (configurations != (['classpath'] as Set)) {
+            fail("${projectPath} buildscript lock maps ${coordinate} outside classpath.")
+        }
+        if (!coordinates.add(coordinate)) {
+            fail("${projectPath} buildscript lock repeats ${coordinate}.")
+        }
+    }
+    if (emptyStateConfigurations == null) {
+        fail("${projectPath} buildscript lock has no generated empty-state marker.")
+    }
+    def expectedEmptyState = coordinates.isEmpty()
+        ? (['classpath'] as Set)
+        : ([] as Set)
+    if (emptyStateConfigurations != expectedEmptyState) {
+        fail("${projectPath} buildscript lock has an unexpected empty-state mapping.")
+    }
+    return coordinates
+}
+
+tasks.register('verifyDependencyLocks') {
+    group = 'verification'
+    description = 'Verifies strict project and buildscript dependency locking at runtime.'
+
+    doLast {
+        def actualProjectPaths = rootProject.allprojects.collect { it.path }.sort()
+        def expectedProjectPaths = expectedProjects.keySet().sort()
+        if (actualProjectPaths != expectedProjectPaths) {
+            fail("project set is ${actualProjectPaths}, expected ${expectedProjectPaths}.")
+        }
+
+        expectedProjects.each { String projectPath, Map contract ->
+            def lockedProject = rootProject.project(projectPath)
+            def projectLocking = lockedProject.dependencyLocking
+            def buildscriptLocking = lockedProject.buildscript.dependencyLocking
+            def classpath = lockedProject.buildscript.configurations.getByName('classpath')
+
+            if (projectLocking.lockMode.get() != LockMode.STRICT) {
+                fail("${projectPath} project lock mode is not STRICT.")
+            }
+            if (buildscriptLocking.lockMode.get() != LockMode.STRICT) {
+                fail("${projectPath} buildscript lock mode is not STRICT.")
+            }
+            exactFile(
+                projectLocking.lockFile.get().asFile,
+                contract.projectLock,
+                "${projectPath} project lock"
+            )
+            exactFile(
+                buildscriptLocking.lockFile.get().asFile,
+                contract.buildscriptLock,
+                "${projectPath} buildscript lock"
+            )
+            if (!projectLocking.ignoredDependencies.get().isEmpty()) {
+                fail("${projectPath} project locking ignores dependencies.")
+            }
+            if (!buildscriptLocking.ignoredDependencies.get().isEmpty()) {
+                fail("${projectPath} buildscript locking ignores dependencies.")
+            }
+            lockedProject.configurations.each { configuration ->
+                if (!configuration.resolutionStrategy.dependencyLockingEnabled) {
+                    fail("${projectPath}:${configuration.name} does not activate project dependency locking.")
+                }
+            }
+            if (!classpath.canBeResolved) {
+                fail("${projectPath} buildscript classpath cannot be resolved.")
+            }
+            if (!classpath.resolutionStrategy.dependencyLockingEnabled) {
+                fail("${projectPath} buildscript classpath does not activate dependency locking.")
+            }
+
+            def directClasspath = classpath.dependencies.collect {
+                if (it.group == null || it.name == null || it.version == null) {
+                    fail(
+                        "${projectPath} buildscript classpath contains an unsupported "
+                        + "non-module dependency: ${it}."
+                    )
+                }
+                "${it.group}:${it.name}:${it.version}"
+            } as Set
+            if (directClasspath != contract.directClasspath) {
+                fail(
+                    "${projectPath} direct classpath is ${directClasspath.sort()}, "
+                    + "expected ${contract.directClasspath.sort()}."
+                )
+            }
+
+            def lockedCoordinates = classpathLockCoordinates(
+                contract.buildscriptLock,
+                projectPath
+            )
+            def resolution = classpath.incoming.resolutionResult
+            def unexpectedComponents = resolution.allComponents
+                .findAll {
+                    !(it.id instanceof ModuleComponentIdentifier)
+                        && it.id != resolution.root.id
+                }
+                .collect { it.id.displayName }
+            if (!unexpectedComponents.isEmpty()) {
+                fail(
+                    "${projectPath} buildscript classpath resolved unsupported components: "
+                    + "${unexpectedComponents.sort()}."
+                )
+            }
+            def unresolvedDependencies = resolution.allDependencies
+                .findAll { !(it instanceof ResolvedDependencyResult) }
+            if (!unresolvedDependencies.isEmpty()) {
+                fail("${projectPath} buildscript classpath contains unresolved dependencies.")
+            }
+            def resolvedCoordinates = resolution.allComponents
+                .collect { it.id }
+                .findAll { it instanceof ModuleComponentIdentifier }
+                .collect { "${it.group}:${it.module}:${it.version}" } as Set
+            def constraintCoordinates = resolution.allDependencies
+                .findAll {
+                    it instanceof ResolvedDependencyResult
+                        && it.constraint
+                        && it.selected.id instanceof ModuleComponentIdentifier
+                }
+                .collect {
+                    def identifier = it.selected.id
+                    "${identifier.group}:${identifier.module}:${identifier.version}"
+                } as Set
+
+            if (resolvedCoordinates != lockedCoordinates) {
+                fail(
+                    "${projectPath} resolved classpath differs from "
+                    + "${contract.buildscriptLock.name}."
+                )
+            }
+            if (constraintCoordinates != lockedCoordinates) {
+                fail(
+                    "${projectPath} lock constraints do not bind every resolved "
+                    + "buildscript classpath module."
+                )
+            }
+        }
+
+        logger.lifecycle(
+            "Verified strict Gradle dependency locks for ${expectedProjects.keySet().join(', ')}."
+        )
+    }
+}

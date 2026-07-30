@@ -18,7 +18,7 @@ function config() {
       idleTimeoutMs: 2_000,
     },
     homeAddress: "gopher://example.com/1/",
-    version: "3.2.0",
+    version: "3.2.1",
   };
 }
 

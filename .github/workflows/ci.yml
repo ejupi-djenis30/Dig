@@ -168,6 +168,7 @@ jobs:
           ./android/gradlew \
             --no-daemon \
             --project-dir android \
+            :verifyDependencyLocks \
             :app:testDebugUnitTest \
             :app:lintDebug \
             :app:lintRelease \

@@ -45,7 +45,7 @@ test("fetch command renders human output and reports the digest", async () => {
   const stderr = outputStream();
   let receivedOptions;
   const status = await runCli(["gopher://example.org/0/readme"], {
-    version: "3.2.0",
+    version: "3.2.1",
     stdout,
     stderr,
     fetchResource: async (_address, options) => {

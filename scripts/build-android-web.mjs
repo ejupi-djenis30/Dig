@@ -10,7 +10,7 @@ const outputRoot = resolve(repositoryRoot, "dist", "android");
 const entryPoint = resolve(repositoryRoot, "mobile", "entry.mjs");
 const repositorySourceUrl = "https://github.com/ejupi-djenis30/Dig";
 const exclusionNames = ["source", "cli-link", "app-meta", "footer-links"];
-const pagesOnlyMetadata = [".well-known", "robots.txt", "sitemap.xml"];
+const pagesOnlyMetadata = [".well-known", "404.html", "robots.txt", "sitemap.xml"];
 
 function assertConfined(path) {
   const pathFromRoot = relative(repositoryRoot, path);

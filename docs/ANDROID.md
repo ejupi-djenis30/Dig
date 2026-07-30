@@ -1,6 +1,6 @@
 # Android application
 
-DIG 3.2.0 includes a standalone Android application. Capacitor packages the reviewed Explorer assets, while an app-local Java plugin performs Gopher I/O over a direct TCP socket. The APK does not load DIG from a remote web server and does not use the HTTP gateway.
+DIG 3.2.1 includes a standalone Android application. Capacitor packages the reviewed Explorer assets, while an app-local Java plugin performs Gopher I/O over a direct TCP socket. The APK does not load DIG from a remote web server and does not use the HTTP gateway.
 
 ## Build contract
 
@@ -76,6 +76,8 @@ npm run android:sync
 
 `android:sync` first rebuilds `dist/android`, then runs `cap sync android`. Run it after every change under `site/`, `mobile/` or the Capacitor configuration.
 
+Gradle resolves in strict lock mode. The reviewed lock state under `android/gradle/dependency-locks/`, together with `android/buildscript-gradle.lockfile`, covers every project configuration and every project buildscript classpath, including the generated Capacitor and Cordova bridge projects. The locking hook lives in the repository-owned `android/settings.gradle`; it does not patch generated files or dependencies below `node_modules`. A normal build fails if dependency resolution drifts from the checked-in files. When a reviewed dependency update is intentional, run the complete Android task set with `--write-locks`, inspect every changed coordinate and commit the generated lockfiles. Do not edit lock entries by hand.
+
 Run the JavaScript bridge and packaging tests from the repository root:
 
 ```bash
@@ -114,8 +116,8 @@ Remove-Item Env:DIG_SOURCE_COMMIT
 The command synchronizes the Android assets, runs `testDebugUnitTest`, `lintRelease` and `assembleRelease`, then copies the signed APK and its SHA-256 file to:
 
 ```text
-release/android/DIG-3.2.0.apk
-release/android/DIG-3.2.0.apk.sha256
+release/android/DIG-3.2.1.apk
+release/android/DIG-3.2.1.apk.sha256
 ```
 
 For CI or another controlled signing host, do not copy `release-signing.properties` into the repository. Provide all four values from the platform's secret store:
@@ -160,7 +162,7 @@ Verify the signature, package metadata and permissions before distribution:
 
 ```powershell
 $buildTools = Join-Path $env:ANDROID_HOME 'build-tools\36.0.0'
-$apk = Resolve-Path 'release\android\DIG-3.2.0.apk'
+$apk = Resolve-Path 'release\android\DIG-3.2.1.apk'
 & "$buildTools\apksigner.bat" verify --verbose --print-certs `
   $apk
 & "$buildTools\aapt2.exe" dump badging `

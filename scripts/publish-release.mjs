@@ -223,21 +223,38 @@ function releaseById({ repository, releaseId, run }) {
 }
 
 function resolveRemoteTag({ repository, tag, run }) {
-  let object = getJson({
+  const reference = getJson({
     endpoint: `repos/${repository}/git/ref/tags/${encodeURIComponent(tag)}`,
     run,
-  }).object;
-  const visited = new Set();
-  for (let depth = 0; depth < 8; depth += 1) {
-    assert.ok(object && typeof object === "object", `Remote tag ${tag} has no target object.`);
-    assert.match(object.sha ?? "", sourceCommitPattern, `Remote tag ${tag} has an invalid target SHA.`);
-    if (object.type === "commit") return object.sha;
-    assert.equal(object.type, "tag", `Remote tag ${tag} targets unsupported object type ${object.type}.`);
-    assert.equal(visited.has(object.sha), false, `Remote tag ${tag} contains a tag-object cycle.`);
-    visited.add(object.sha);
-    object = getJson({ endpoint: `repos/${repository}/git/tags/${object.sha}`, run }).object;
-  }
-  throw new Error(`Remote tag ${tag} exceeds the supported annotated-tag depth.`);
+  });
+  const referenceObject = reference?.object;
+  assert.ok(referenceObject && typeof referenceObject === "object", `Remote tag ${tag} has no target object.`);
+  assert.equal(referenceObject.type, "tag", `Remote tag ${tag} must be an annotated tag.`);
+  assert.match(referenceObject.sha ?? "", sourceCommitPattern, `Remote tag ${tag} has an invalid tag-object SHA.`);
+
+  const tagObject = getJson({
+    endpoint: `repos/${repository}/git/tags/${referenceObject.sha}`,
+    run,
+  });
+  assert.ok(tagObject && typeof tagObject === "object" && !Array.isArray(tagObject), `Remote tag ${tag} has no annotated tag object.`);
+  assert.equal(tagObject.sha, referenceObject.sha, `Remote tag ${tag} returned a different annotated tag object.`);
+  assert.equal(tagObject.tag, tag, `Remote tag ${tag} returned a mismatched tag name.`);
+  assert.equal(
+    tagObject.verification?.verified,
+    true,
+    `Remote tag ${tag} must have a GitHub-verified signature.`,
+  );
+  assert.equal(
+    tagObject.object?.type,
+    "commit",
+    `Remote tag ${tag} must target a commit directly; nested tags are not accepted.`,
+  );
+  assert.match(
+    tagObject.object.sha ?? "",
+    sourceCommitPattern,
+    `Remote tag ${tag} has an invalid target commit SHA.`,
+  );
+  return tagObject.object.sha;
 }
 
 function remoteBranchHead({ repository, branch, run }) {

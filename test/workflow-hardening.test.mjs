@@ -118,6 +118,7 @@ test("CI pins Ubuntu and exact maintained Node.js patch releases", async () => {
   const androidBuild = android.steps.find(
     (step) => step.name === "Test, lint, and assemble the Android app",
   )?.run;
+  assert.match(androidBuild, /^\s*:verifyDependencyLocks \\\s*$/mu);
   assert.match(androidBuild, /:app:testDebugUnitTest/u);
   assert.match(androidBuild, /:app:lintDebug/u);
   assert.match(androidBuild, /:app:lintRelease/u);
@@ -153,4 +154,32 @@ test("Pages build has read-only source access and deployment alone receives Page
     "actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128",
   ]);
   for (const reference of collectUses(pages)) assert.match(reference, pinnedUse);
+});
+
+test("Dependabot covers Node.js, Actions, and the Android Gradle build", async () => {
+  const source = await readFile(resolve(repositoryRoot, ".github/dependabot.yml"), "utf8");
+  const document = parseDocument(source, { schema: "core", strict: true, uniqueKeys: true, merge: false });
+  assert.deepEqual(document.errors, [], "dependabot.yml must be valid, duplicate-free YAML.");
+  const dependabot = document.toJS();
+  assert.equal(dependabot.version, 2);
+  assert.deepEqual(
+    dependabot.updates.map((entry) => ({
+      ecosystem: entry["package-ecosystem"],
+      directory: entry.directory,
+    })),
+    [
+      { ecosystem: "npm", directory: "/" },
+      { ecosystem: "github-actions", directory: "/" },
+      { ecosystem: "gradle", directory: "/android" },
+    ],
+  );
+  for (const entry of dependabot.updates) {
+    assert.deepEqual(entry.schedule, {
+      interval: "weekly",
+      day: "monday",
+      timezone: "Europe/Zurich",
+    });
+    assert.equal(entry["open-pull-requests-limit"], 5);
+    assert.deepEqual(entry.labels, ["dependencies"]);
+  }
 });

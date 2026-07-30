@@ -124,6 +124,7 @@ await run(javaCommand, [
   "org.gradle.wrapper.GradleWrapperMain",
   "--no-daemon",
   "clean",
+  ":verifyDependencyLocks",
   ":app:testDebugUnitTest",
   ":app:lintRelease",
   ":app:assembleDebugAndroidTest",

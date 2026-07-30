@@ -154,7 +154,7 @@ test("static assets prefer a fresh response and update the offline cache", async
 
   const response = await dispatchFetch(
     listeners.get("fetch"),
-    "https://ejupi-djenis30.github.io/Dig/styles.css?v=3.2.0",
+    "https://ejupi-djenis30.github.io/Dig/styles.css?v=3.2.1",
   );
 
   assert.equal(await response.text(), "fresh");
@@ -169,7 +169,7 @@ test("static assets fall back to the verified cache when the network is unavaila
 
   const response = await dispatchFetch(
     listeners.get("fetch"),
-    "https://ejupi-djenis30.github.io/Dig/styles.css?v=3.2.0",
+    "https://ejupi-djenis30.github.io/Dig/styles.css?v=3.2.1",
   );
 
   assert.equal(await response.text(), "cached");
@@ -184,7 +184,7 @@ test("static assets fall back to cache when the network returns a 5xx response",
 
   const response = await dispatchFetch(
     listeners.get("fetch"),
-    "https://ejupi-djenis30.github.io/Dig/styles.css?v=3.2.0",
+    "https://ejupi-djenis30.github.io/Dig/styles.css?v=3.2.1",
   );
 
   assert.equal(await response.text(), "cached");
