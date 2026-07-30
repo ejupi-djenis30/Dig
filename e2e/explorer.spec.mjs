@@ -241,6 +241,47 @@ test.describe("320px viewport", () => {
     isMobile: true,
   });
 
+  test("keeps the latest-release action readable and inside the hero", async ({
+    page,
+  }) => {
+    await page.goto("./");
+    const releaseLink = page.locator("[data-release-link]");
+
+    await expect(releaseLink).toBeVisible();
+    await expect(releaseLink).toHaveAttribute(
+      "href",
+      "https://github.com/ejupi-djenis30/Dig/releases/latest",
+    );
+
+    const geometry = await page.evaluate(() => {
+      const link = document.querySelector("[data-release-link]");
+      const hero = document.querySelector(".hero");
+      const linkBounds = link.getBoundingClientRect();
+      const heroBounds = hero.getBoundingClientRect();
+
+      return {
+        documentWidth: document.documentElement.scrollWidth,
+        viewportWidth: document.documentElement.clientWidth,
+        link: {
+          height: linkBounds.height,
+          left: linkBounds.left,
+          right: linkBounds.right,
+          width: linkBounds.width,
+        },
+        hero: {
+          left: heroBounds.left,
+          right: heroBounds.right,
+        },
+      };
+    });
+
+    expect(geometry.documentWidth).toBeLessThanOrEqual(geometry.viewportWidth);
+    expect(geometry.link.width).toBeGreaterThanOrEqual(44);
+    expect(geometry.link.height).toBeGreaterThanOrEqual(44);
+    expect(geometry.link.left).toBeGreaterThanOrEqual(geometry.hero.left - 1);
+    expect(geometry.link.right).toBeLessThanOrEqual(geometry.hero.right + 1);
+  });
+
   test("keeps the live explorer and every visible control in the viewport", async ({
     page,
   }) => {
