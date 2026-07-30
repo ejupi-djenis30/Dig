@@ -21,6 +21,20 @@ test("the skip link has a visible keyboard-focus state and a usable target size"
   assert.match(styles, /\.skip-link:focus-visible\s*\{[^}]*transform:\s*translateY\(0\);/s);
 });
 
+test("the hero links directly to the canonical latest release", async () => {
+  const [html, styles] = await Promise.all([
+    readFile(new URL("index.html", siteRoot), "utf8"),
+    readFile(new URL("styles.css", siteRoot), "utf8"),
+  ]);
+
+  assert.match(
+    html,
+    /<a\s+class="release-action"\s+data-release-link\s+href="https:\/\/github\.com\/ejupi-djenis30\/Dig\/releases\/latest"\s*>\s*Get latest release <span aria-hidden="true">↗<\/span>\s*<\/a>/u,
+  );
+  assert.match(styles, /\.release-action\s*\{[^}]*min-height:\s*2\.75rem;/su);
+  assert.match(styles, /\.release-action\s*\{[^}]*background:\s*var\(--orange\);/su);
+});
+
 test("the packet side nodes keep symmetric spacing at intermediate widths", async () => {
   const styles = await readFile(new URL("styles.css", siteRoot), "utf8");
 

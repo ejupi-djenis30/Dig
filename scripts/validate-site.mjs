@@ -67,6 +67,11 @@ if (
 for (const required of ['lang="en"', "<title>", "<main", "aria-label", "Run DIG locally", "data-security-banner", "data-history-list", "data-bookmark-list", "data-resource-tab", "data-trace-tab", "data-install", "viewport-fit=cover", 'name="apple-mobile-web-app-capable" content="yes"', 'name="apple-mobile-web-app-status-bar-style" content="black-translucent"', 'rel="manifest"', 'rel="apple-touch-icon" sizes="180x180" href="assets/dig-mark-180.png"', "readonly", "PRIVACY.md", '<meta name="referrer" content="no-referrer" />', 'http-equiv="Content-Security-Policy"', `content="${expectedCsp}"`, `property="og:image" content="${socialPreviewUrl}"`, 'property="og:image:width" content="1200"', 'property="og:image:height" content="675"', "property=\"og:image:alt\"", 'name="twitter:card" content="summary_large_image"', `name="twitter:image" content="${socialPreviewUrl}"`, 'name="twitter:image:alt"']) {
   if (!html.includes(required)) throw new Error(`index.html is missing ${required}`);
 }
+const latestReleaseLink =
+  /<a\s+class="release-action"\s+data-release-link\s+href="https:\/\/github\.com\/ejupi-djenis30\/Dig\/releases\/latest"\s*>\s*Get latest release <span aria-hidden="true">↗<\/span>\s*<\/a>/u;
+if (!latestReleaseLink.test(html)) {
+  throw new Error("The public site must link directly to DIG's canonical latest release.");
+}
 const skipLink = '<a class="skip-link" href="#main-content">Skip to content</a>';
 if (!html.includes(skipLink)) throw new Error("index.html is missing the skip link.");
 if (!html.includes('<main id="main-content" tabindex="-1">')) {

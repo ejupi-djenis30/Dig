@@ -120,6 +120,9 @@ h1 em { color: var(--orange); font-family: Georgia, serif; font-weight: 400; }
 .install-action:hover { color: var(--paper); background: var(--ink); }
 .primary-action { display: inline-flex; gap: 1.5rem; align-items: center; padding: 1rem 1.3rem; color: var(--paper); background: var(--ink); border-radius: 999px; text-decoration: none; }
 .primary-action span { color: var(--acid); font-size: 1.1rem; }
+.release-action { display: inline-flex; gap: .8rem; align-items: center; min-height: 2.75rem; padding: .85rem 1.1rem; border: 1px solid var(--orange); border-radius: 999px; color: var(--paper); background: var(--orange); text-decoration: none; }
+.release-action:hover { border-color: var(--ink); background: var(--ink); }
+.release-action span { font-size: 1rem; }
 
 .packet-art {
   position: relative;
