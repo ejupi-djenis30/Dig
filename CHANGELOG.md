@@ -5,6 +5,7 @@
 - Stabilize the mobile explorer panel controls and add regression coverage for narrow Chromium and WebKit layouts.
 - Publish scoped discovery metadata, a security contact, a sitemap and a direct link to the latest reviewed release on GitHub Pages.
 - Require every release tag to be annotated, signed and reported as verified by GitHub before the publisher can create or modify a release.
+- Fail Android builds and releases when the root, app, Capacitor or Cordova dependency graph diverges from the reviewed lockfiles.
 - Include the referenced operating documentation in the CLI archive and publish canonical repository, issue and project-page metadata with the package.
 - Add a project-scoped not-found page and extend automated dependency updates to the Android Gradle build.
 
