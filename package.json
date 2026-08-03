@@ -45,7 +45,7 @@
     "node": ">=22"
   },
   "devDependencies": {
-    "@capacitor/android": "8.4.2",
+    "@capacitor/android": "8.5.0",
     "@capacitor/cli": "8.4.2",
     "@capacitor/core": "8.4.2",
     "@playwright/test": "1.62.0",
