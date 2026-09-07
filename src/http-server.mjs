@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import { isIP } from "node:net";
 import { extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { DEFAULT_IDLE_TIMEOUT_MS, DEFAULT_MAX_BYTES, DEFAULT_TIMEOUT_MS } from "./client.mjs";
 import { DestinationPolicyError } from "./network-policy.mjs";
 import { fetchGopherResource } from "./resource.mjs";
 
@@ -437,9 +438,9 @@ export async function createDigServer(options = {}) {
           : null,
         limits: {
           requestBytes: bodyLimit,
-          responseBytes: options.maxBytes ?? 1_048_576,
-          timeoutMs: options.timeoutMs ?? 5_000,
-          idleTimeoutMs: options.idleTimeoutMs ?? 2_000,
+          responseBytes: options.maxBytes ?? DEFAULT_MAX_BYTES,
+          timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+          idleTimeoutMs: options.idleTimeoutMs ?? Math.min(DEFAULT_IDLE_TIMEOUT_MS, options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
         },
         homeAddress:
           options.homeAddress ?? "gopher://gopher.floodgap.com/1/",

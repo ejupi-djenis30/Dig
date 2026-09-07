@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { performance } from "node:perf_hooks";
-import { fetchGopher } from "./client.mjs";
+import { DEFAULT_TIMEOUT_MS, fetchGopher } from "./client.mjs";
 import { resolveDestination } from "./network-policy.mjs";
 import {
   decodeTextResponse,
@@ -90,6 +90,59 @@ function responseDigest(payload) {
   return createHash("sha256").update(payload).digest("hex");
 }
 
+async function fetchWithinDeadline(target, canonicalUrl, query, options) {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000) {
+    throw new Error("timeoutMs must be between 1 and 60000.");
+  }
+  const startedAt = performance.now();
+  const deadlineController = new AbortController();
+  const signal = options.signal === undefined
+    ? deadlineController.signal
+    : AbortSignal.any([options.signal, deadlineController.signal]);
+  signal.throwIfAborted();
+  let onAbort;
+  const cancelled = new Promise((_, reject) => {
+    onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  const deadline = setTimeout(() => {
+    deadlineController.abort(new Error(`Request exceeded the ${timeoutMs} ms total deadline.`));
+  }, timeoutMs);
+  try {
+    return await Promise.race([
+      cancelled,
+      (async () => {
+        const destination = await resolveDestination(target.host, {
+          mode: options.mode ?? "hosted",
+          allowPrivate: options.allowPrivate === true,
+          lookup: options.lookup,
+        });
+        // OS DNS work may finish after cancellation. Never open its socket then.
+        signal.throwIfAborted();
+        const remainingMs = Math.ceil(timeoutMs - (performance.now() - startedAt));
+        if (remainingMs < 1) {
+          throw new Error(`Request exceeded the ${timeoutMs} ms total deadline.`);
+        }
+        const payloadValue = await (options.fetcher ?? fetchGopher)(canonicalUrl, {
+          encoding: null,
+          timeoutMs: remainingMs,
+          idleTimeoutMs: options.idleTimeoutMs,
+          maxBytes: options.maxBytes,
+          signal,
+          query,
+          connectAddress: destination.address,
+          connectFamily: destination.family,
+        });
+        return { destination, payloadValue, startedAt };
+      })(),
+    ]);
+  } finally {
+    clearTimeout(deadline);
+    signal.removeEventListener("abort", onAbort);
+  }
+}
+
 export async function fetchGopherResource(address, options = {}) {
   let parsed;
   try {
@@ -137,23 +190,9 @@ export async function fetchGopherResource(address, options = {}) {
     });
   }
 
-  const destination = await resolveDestination(target.host, {
-    mode: options.mode ?? "hosted",
-    allowPrivate: options.allowPrivate === true,
-    lookup: options.lookup,
-  });
-  const fetcher = options.fetcher ?? fetchGopher;
-  const startedAt = performance.now();
-  const payloadValue = await fetcher(canonicalUrl, {
-    encoding: null,
-    timeoutMs: options.timeoutMs,
-    idleTimeoutMs: options.idleTimeoutMs,
-    maxBytes: options.maxBytes,
-    signal: options.signal,
-    query,
-    connectAddress: destination.address,
-    connectFamily: destination.family,
-  });
+  const { destination, payloadValue, startedAt } = await fetchWithinDeadline(
+    target, canonicalUrl, query, options,
+  );
   const payload = Buffer.isBuffer(payloadValue)
     ? payloadValue
     : Buffer.from(payloadValue);

@@ -61,8 +61,8 @@ The Android destination sees the device's public network address. The policy pre
 
 The CLI and gateway default transport applies:
 
-- 5 second total deadline;
-- 2 second idle timeout;
+- 5 second total deadline across DNS resolution and TCP transport;
+- 2.5 second idle timeout;
 - 8 KiB encoded request cap;
 - 1 MiB response cap;
 - 10 MiB hard configurable response ceiling;
@@ -86,6 +86,23 @@ Gopher provides no encryption or server authentication. A server can log the cli
 The destination policy reduces SSRF risk but does not turn an internet-facing gateway into a general-purpose public service. Keep it behind authentication, rate limits and a trusted reverse proxy.
 
 Install Android APKs only from a trusted release channel and verify their signing certificate. Keep the release keystore and credentials outside the repository and CI logs, back them up securely, and use the same signing identity for every update.
+
+## Development dependency audit — 2026-09-07
+
+The npm audit against `https://registry.npmjs.org/` reports no known vulnerabilities in
+the current lockfile. Compatible patches resolve the two advisories previously reported
+in Capacitor's development tooling:
+
+| Advisory | Patched dependency and path | Status |
+| --- | --- | --- |
+| [GHSA-6gmq-8vp8-gcm6](https://github.com/advisories/GHSA-6gmq-8vp8-gcm6), moderate | `@capacitor/cli → plist → @xmldom/xmldom@0.9.12` (also through `native-run → plist`) | Fixed in the locked version. |
+| [GHSA-rgw5-rvv9-x895](https://github.com/advisories/GHSA-rgw5-rvv9-x895), high | `@capacitor/cli → rimraf → glob → minimatch → brace-expansion@5.0.9` | Fixed in the locked version. |
+
+The patch metadata and integrity hashes were verified against the official registry using
+a fresh npm cache; stale cached metadata had previously returned E404 for these versions.
+The existing audit gates remain enabled. Re-run the audit before release, because a clean
+result describes the advisories known at the time of the check. Build tools should process
+reviewed project sources.
 
 ## Reporting
 

@@ -52,6 +52,34 @@ async function startHttpApp(options) {
   };
 }
 
+test("DNS deadline returns 504 and releases the gateway concurrency slot", { timeout: 3_000 }, async (context) => {
+  let lookups = 0;
+  const { app, origin } = await startHttpApp({
+    timeoutMs: 50,
+    maxConcurrent: 1,
+    lookup: () => {
+      lookups += 1;
+      return lookups === 1
+        ? new Promise(() => {})
+        : Promise.resolve([{ address: "93.184.216.34", family: 4 }]);
+    },
+    fetcher: async () => Buffer.from("Recovered\r\n.\r\n"),
+  });
+  context.after(() => app.close());
+  const request = () => fetch(`${origin}/Dig/api/fetch`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin },
+    body: JSON.stringify({ address: "gopher://example.org/0/test" }),
+  });
+
+  const timedOut = await request();
+  assert.equal(timedOut.status, 504);
+  assert.equal((await timedOut.json()).error.code, "GOPHER_TIMEOUT");
+  const recovered = await request();
+  assert.equal(recovered.status, 200);
+  assert.equal((await recovered.json()).text, "Recovered");
+});
+
 test("local API serves config and fetches a real fixture menu", async (context) => {
   const fixture = createFixtureServer();
   const fixtureAddress = await fixture.listen();
