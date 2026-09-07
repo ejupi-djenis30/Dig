@@ -48,7 +48,7 @@
     "@capacitor/android": "8.4.2",
     "@capacitor/cli": "8.4.2",
     "@capacitor/core": "8.4.2",
-    "@playwright/test": "1.62.0",
+    "@playwright/test": "1.62.1",
     "esbuild": "0.28.1",
     "remark-parse": "11.0.0",
     "unified": "11.0.5",
