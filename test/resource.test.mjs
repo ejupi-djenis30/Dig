@@ -1,7 +1,56 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import { createFixtureServer } from "../scripts/gopher-fixture.mjs";
 import { fetchGopherResource } from "../src/resource.mjs";
+
+test("total deadline bounds DNS resolution even when the resolver never settles", async () => {
+  await assert.rejects(fetchGopherResource("gopher://example.org/0/test", {
+    timeoutMs: 30,
+    lookup: () => new Promise(() => {}),
+    fetcher: () => assert.fail("a stalled lookup must not open a connection"),
+  }), /30 ms total deadline/u);
+});
+
+test("cancelling DNS returns promptly and never connects after its late answer", async () => {
+  const controller = new AbortController();
+  let finishLookup;
+  let fetchCount = 0;
+  const request = fetchGopherResource("gopher://example.org/0/test", {
+    signal: controller.signal,
+    lookup: () => new Promise((resolve) => { finishLookup = resolve; }),
+    fetcher: () => { fetchCount += 1; return Buffer.from("late"); },
+  });
+  controller.abort();
+  await assert.rejects(request, { name: "AbortError" });
+  finishLookup([{ address: "93.184.216.34", family: 4 }]);
+  await delay(0);
+  assert.equal(fetchCount, 0);
+});
+
+test("an already cancelled request performs no DNS work", async () => {
+  await assert.rejects(fetchGopherResource("gopher://example.org/0/test", {
+    signal: AbortSignal.abort(),
+    lookup: () => assert.fail("cancelled requests must not resolve DNS"),
+  }), { name: "AbortError" });
+});
+
+test("DNS and transport share one deadline and reported duration", async () => {
+  const resource = await fetchGopherResource("gopher://example.org/0/test", {
+    timeoutMs: 1_000,
+    lookup: async () => {
+      await delay(30);
+      return [{ address: "93.184.216.34", family: 4 }];
+    },
+    fetcher: async (_address, options) => {
+      assert.ok(options.timeoutMs > 0 && options.timeoutMs < 1_000);
+      assert.equal(options.connectAddress, "93.184.216.34");
+      return Buffer.from("bounded\r\n.\r\n");
+    },
+  });
+  assert.ok(resource.durationMs >= 20, "duration includes time spent resolving DNS");
+  assert.equal(resource.text, "bounded");
+});
 
 test("fetches menus, text, search results and binary bytes from the TCP fixture", async (context) => {
   const fixture = createFixtureServer();

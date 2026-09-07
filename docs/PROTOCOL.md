@@ -57,11 +57,16 @@ Defaults:
 | Limit | Default | Hard ceiling |
 | --- | ---: | ---: |
 | Total deadline | 5,000 ms | 60,000 ms |
-| Idle timeout | 2,000 ms | 60,000 ms |
+| Idle timeout | 2,500 ms | 60,000 ms |
 | Response bytes | 1 MiB | 10 MiB |
 | Request bytes | 8 KiB | 8 KiB |
 
-The total deadline uses a monotonic clock and remains effective even if a server drips data. The idle timer closes a connection that stops making progress. AbortSignal cancellation destroys the socket.
+The CLI and gateway share one total deadline across DNS resolution and the TCP exchange. The
+remaining transport budget uses a monotonic clock and remains effective even if a server drips
+data. The reported duration includes DNS. The idle timer closes a connection that stops making
+progress. AbortSignal cancellation returns promptly during DNS and destroys an active socket.
+An operating-system DNS lookup may finish in the background after cancellation, but its late
+answer cannot open a connection.
 
 ## Deliberate exclusions
 

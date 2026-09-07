@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Apply one deadline to DNS and TCP requests, cancel pending resolution promptly, and prevent late DNS answers from opening sockets after cancellation.
+- Include DNS time in resource durations and align the gateway's advertised default idle timeout with the transport.
+- Patch the locked xmldom and brace-expansion build dependencies to resolve their npm security advisories.
+
 ## 3.2.1 — 2026-07-30
 
 - Stabilize the mobile explorer panel controls and add regression coverage for narrow Chromium and WebKit layouts.
